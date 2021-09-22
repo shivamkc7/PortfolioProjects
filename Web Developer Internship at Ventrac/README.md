@@ -1,1 +1,1 @@
-
+As a Web Developer Intern at Ventrac, I contributed to the above projects collaborating with Denver Steiner, Director of Information Systems, and Caleb Hartman, Lead Developer. Since I am only allowed to share the screenshots of the websites we built, I have attached the screenshots in the folders.
