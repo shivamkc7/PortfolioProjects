@@ -1,0 +1,123 @@
+---
+title: "Prob Stats II"
+author: "Botao Liu and Shivam K C"
+date: "11/30/2019"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+```
+
+
+```{r}
+#library(mcmc)
+#library(MCMCpack)
+#library(rjags)
+#library(BEST)
+#mcmcChain=BESTmcmc(data_2$total_points,data_2$selected_by_percent)
+```
+
+
+```{r}
+require(MASS)
+require(dplyr)
+WHR = read.csv("World_Happiness_Report_2008-2018_no.csv")
+data_1<-filter(WHR,Year==2018)
+data_2<-data_1 %>%  dplyr::select(Life.Ladder, Healthy.life.expectancy.at.birth)
+
+```
+
+
+
+```{r}
+hist(data_2$Life.Ladder)
+```
+
+```{r}
+library(car)
+scatterplot(Life.Ladder ~ Healthy.life.expectancy.at.birth, data = data_2)
+```
+```{r}
+library(gridExtra)
+ library(ggplot2)
+ 
+```
+
+```{r}
+summary(model_reg)
+ggplot(data_2, aes(x=Healthy.life.expectancy.at.birth, y=Life.Ladder))+geom_point()
+ model_reg<-lm(Life.Ladder~Healthy.life.expectancy.at.birth,data=data_2)
+ #abline(model_reg)
+```
+```{r}
+plot(Life.Ladder~Healthy.life.expectancy.at.birth,data=data_2)
+abline(model_reg)
+```
+```{r}
+ggplot(data_2, aes(x= Healthy.life.expectancy.at.birth, y=Life.Ladder))+geom_point()+ggtitle("Ladder vs. Healthy life expectancy")+geom_smooth(method=lm, se=FALSE)
+```
+
+
+```{r}
+library(MCMCpack)
+data.mcmcpack <- MCMCregress(Life.Ladder ~ Healthy.life.expectancy.at.birth, data = data_2, b0=c(0,0),B0=c(25,25))
+```
+
+```{r}
+#plot(data.mcmcpack)#what about this?
+```
+
+#Maybe important
+```{r}
+mcmc = as.matrix(data.mcmcpack)
+# generate a model matrix
+Xmat = model.matrix(~Healthy.life.expectancy.at.birth, data_2)
+## get median parameter estimates
+coefs = mcmc[, 1:2]
+fit = coefs %*% t(Xmat)
+## draw samples from this model
+yRep = sapply(1:nrow(mcmc), function(i) rnorm(nrow(data_2), fit[i,
+    ], sqrt(mcmc[i, "sigma2"])))
+ggplot() + geom_density(data = NULL, aes(x = as.vector(yRep),
+    fill = "Model"), alpha = 0.5) + geom_density(data = data_2,
+    aes(x = Life.Ladder, fill = "Obs"), alpha = 0.5)
+```
+
+```{r}
+summary(data.mcmcpack) # as life.expectancy.at.birth  increases by 1 unit, happiness increases by 0.1119 units. [use different numbers, maybe range?]
+
+#The 95% confidence (or credible interval?) interval for the slope does not overlap with 0 implying some effect of x on y.
+```
+
+```{r}
+#frequentist
+freq<-lm(Life.Ladder ~Healthy.life.expectancy.at.birth, data = data_2)
+summary(freq)
+```
+
+
+```{r}
+confint(freq, level = 0.95) #confidence interval similar to credible interval without prior
+```
+
+#which predicts better without prior?
+```{r}
+#freq
+uz <- data.frame(Freedom.to.make.life.choices=0.969898)
+predict_1 <- predict(freq, uz, interval="predict")
+real <- 6.20546
+predictions <- data.frame("Country" = "Uzbekistan",
+                          "Predicted happiness" = sprintf("%2.1f", predict_1[1]), "95% CI" = sprintf("%2.1f-%2.1f", predict_1[2], predict_1[3]),
+                          "True Happiness" = real)
+predictions
+```
+```{r} 
+#difficult
+#bays
+predict_1 <- predict(data.mcmcpack, uz, estimator="BMA", interval = "predict", se.fit=TRUE)
+data.frame("Country" = "Uzbekistan",
+           "Predicted happiness" = predict_1$Ybma, 
+           True Happiness" = real)
+```
+
