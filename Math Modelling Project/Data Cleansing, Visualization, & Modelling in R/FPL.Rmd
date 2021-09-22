@@ -1,0 +1,361 @@
+---
+title: "Final FPL"
+author: "Shivam K C"
+date: "April 4, 2019"
+output: html_document
+---
+
+```{r}
+library(dvmisc)
+library(caret)
+library(readxl)
+```
+
+
+```{r}
+library(leaps)
+library(pROC)
+library(car)
+library(mosaic)
+library(readxl)
+library(readxl)
+#gw15_only_upto_pre16 <- read_excel("C:/College of Wooster/Sophomore second semester/Math Model/Final Project/Data/gw15 only_upto_pre16.xlsx")
+#View(gw15_only_upto_pre16)
+
+
+```
+
+
+#Converting the Data 
+```{r}
+gw15_only_upto_pre16$t_assists = gw15_only_upto_pre16$t_assists/ 15
+gw15_only_upto_pre16$t_minutes = gw15_only_upto_pre16$t_minutes/ 15
+gw15_only_upto_pre16$t_goals_conceded = gw15_only_upto_pre16$t_goals_conceded/ 15
+gw15_only_upto_pre16$t_creativity = gw15_only_upto_pre16$t_creativity/ 15
+gw15_only_upto_pre16$t_influence = gw15_only_upto_pre16$t_influence/ 15
+gw15_only_upto_pre16$threat_t = gw15_only_upto_pre16$threat_t/ 15
+gw15_only_upto_pre16$bonus_t = gw15_only_upto_pre16$bonus_t/ 15
+gw15_only_upto_pre16$bps_t = gw15_only_upto_pre16$bps_t/ 15
+gw15_only_upto_pre16$ict_index_t = gw15_only_upto_pre16$ict_index_t/ 15
+gw15_only_upto_pre16$clean_sheets_t = gw15_only_upto_pre16$clean_sheets_t/ 15
+gw15_only_upto_pre16$red_cards_t = gw15_only_upto_pre16$red_cards_t/ 15
+gw15_only_upto_pre16$yellow_cards_t = gw15_only_upto_pre16$yellow_cards_t/ 15
+
+View(gw15_only_upto_pre16)
+```
+
+```{r}
+#Now the only data
+gw15_only_upto_pre16$assists = gw15_only_upto_pre16$assists-gw15_only_upto_pre16$t_assists
+gw15_only_upto_pre16$bonus = gw15_only_upto_pre16$bonus-gw15_only_upto_pre16$bonus_t
+gw15_only_upto_pre16$bps = gw15_only_upto_pre16$bps-gw15_only_upto_pre16$bps_t
+gw15_only_upto_pre16$clean_sheets = gw15_only_upto_pre16$clean_sheets-gw15_only_upto_pre16$clean_sheets_t
+gw15_only_upto_pre16$creativity = gw15_only_upto_pre16$creativity-gw15_only_upto_pre16$t_creativity
+gw15_only_upto_pre16$goals_conceded = gw15_only_upto_pre16$goals_conceded-gw15_only_upto_pre16$t_goals_conceded
+gw15_only_upto_pre16$goals_scored = gw15_only_upto_pre16$goals_scored-gw15_only_upto_pre16$t_goals_scored
+gw15_only_upto_pre16$ict_index = gw15_only_upto_pre16$ict_index-gw15_only_upto_pre16$ict_index_t
+gw15_only_upto_pre16$influence = gw15_only_upto_pre16$influence-gw15_only_upto_pre16$t_influence
+gw15_only_upto_pre16$minutes = gw15_only_upto_pre16$minutes-gw15_only_upto_pre16$t_minutes
+gw15_only_upto_pre16$red_cards = gw15_only_upto_pre16$red_cards-gw15_only_upto_pre16$red_cards_t
+gw15_only_upto_pre16$yellow_cards = gw15_only_upto_pre16$yellow_cards-gw15_only_upto_pre16$yellow_cards_t
+gw15_only_upto_pre16$threat = gw15_only_upto_pre16$threat-gw15_only_upto_pre16$threat_t
+View(gw15_only_upto_pre16)
+```
+
+#Removing some unnecessary columns by writing
+```{r}
+getwd()
+write.csv(gw15_only_upto_pre16, file = "gw15_only_upto_pre16_avg.csv")
+```
+
+#Then getting the data
+```{r}
+library(readxl)
+gw15_only_upto_pre16_avg <- read_excel("C:/College of Wooster/Sophomore second semester/Math Model/Final Project/gw15_only_upto_pre16_avg.xlsx")
+
+```
+#Converting categorical to categorical
+```{r}
+gw15_only_upto_pre16_avg$was_home <- factor(gw15_only_upto_pre16_avg$was_home)
+View(gw15_only_upto_pre16_avg )
+```
+
+```{r}
+#just to remove dream team
+
+gw15_only_upto_pre16_avg <- gw15_only_upto_pre16_avg [,-c(63)]
+View(gw15_only_upto_pre16_avg )
+```
+
+
+
+#Using CV with Rf to model Points
+```{r}
+#Set parameters for machine learning algorithms
+controlparameters <-trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE)
+parameterGrid <- expand.grid(mtry=c(30)) #maybe i could find this no. in matlab?
+
+#creating classification random forest model
+
+modelRandomClass <- train(gw16_pts ~ ., data=gw15_only_upto_pre16_avg, method="rf", importance=TRUE, trControl=controlparameters, tuneGrid=parameterGrid)
+
+modelRandomClass
+
+```
+
+```{r}
+varImp(modelRandomClass)
+```
+#Dataset for DT
+```{r}
+gw15_only_upto_pre16_avg <- read_excel("C:/College of Wooster/Sophomore second semester/Math Model/Final Project/gw15_only_upto_pre16_avg.xlsx")
+gw15_only_upto_pre16_avg <- gw15_only_upto_pre16_avg [,-c(62)]
+View(gw15_only_upto_pre16_avg )
+```
+
+
+
+
+```{r}
+#Using CV with Rf to model DT classification
+controlparameters <-trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE)
+parameterGrid <- expand.grid(mtry=c(1)) #maybe i could find this no. in matlab?
+
+
+
+
+#creating classification random forest model
+
+modelRandomClass <- train(dream_team ~ ., data=gw15_only_upto_pre16_avg, method="rf", importance=TRUE, trControl=controlparameters, tuneGrid=parameterGrid)
+
+modelRandomClass
+
+```
+```{r}
+#Finding var importance
+varImp(modelRandomClass)
+```
+
+```{r}
+#Using CV with Rf to model DT classification
+
+#gw15_only_upto_pre16_avg$dream_team <- ifelse( gw15_only_upto_pre16_avg$dream_team==1,"Yes", "No")
+#gw15_only_upto_pre16_avg$dream_team <- factor(gw15_only_upto_pre16_avg$dream_team)
+controlparameters <-trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE)
+parameterGrid <- expand.grid(mtry=c(1,5)) #maybe i could find this no. in matlab?
+
+
+
+
+#creating classification random forest model
+
+
+modelRandomClass <- train(dream_team ~ ., data=gw15_only_upto_pre16_avg, method="rf", importance=TRUE, trControl=controlparameters, tuneGrid=parameterGrid)
+
+modelRandomClass
+varImp(modelRandomClass)
+
+#View(gw15_only_upto_pre16_avg)
+
+```
+#Dividing data into train and test
+```{r}
+#Subset into training and testing data
+train <- sample(nrow(gw15_only_upto_pre16_avg), 0.8*nrow(gw15_only_upto_pre16_avg), replace = FALSE)
+P.train <- gw15_only_upto_pre16_avg[train,]
+#P.train<- P #comment this out if you want to do testing
+P.test <- gw15_only_upto_pre16_avg[-train,]
+```
+
+```{r}
+#For dream team
+P.train_dreamteam<-P.train[c(-62)]
+```
+
+#Now training 
+```{r}
+controlparameters <-trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE)
+parameterGrid <- expand.grid(mtry=c(12,17)) #maybe i could find this no. in matlab?
+
+
+
+
+#creating classification random forest model
+
+
+modelRandomClass_1 <- train(dream_team ~ ., data=P.train_dreamteam, method="rf", importance=TRUE, trControl=controlparameters, tuneGrid=parameterGrid)
+
+modelRandomClass_1
+varImp(modelRandomClass_1)
+```
+
+#Now training for points
+```{r}
+#Points
+P.train_points<-P.train[c(-63)]
+```
+#Scatterplot for points
+```{r}
+linearMod <- lm(gw16_pts ~ completed_passes, data=P.train_points)
+summary(linearMod)
+cor(P.train_points$completed_passes, P.train_points$gw16_pts)
+```
+
+```{r}
+controlparameters <-trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE)
+parameterGrid <- expand.grid(mtry=c(5,12)) #maybe i could find this no. in matlab?
+
+
+
+
+#creating classification random forest model
+
+
+modelRandomClass <- train(gw16_pts ~ ., data=P.train_points, method="rf", importance=TRUE, trControl=controlparameters, tuneGrid=parameterGrid)
+
+modelRandomClass
+varImp(modelRandomClass)
+```
+
+#Test gw16_pts
+```{r}
+predgw16_ptsRegress <- predict(modelRandomClass, P.test)
+```
+#MSE for gw_16 from test data
+```{r}
+mean((P.test$gw16_pts-predgw16_ptsRegress) ^2)
+#Baseline MSE
+mean((P.train$total_points - predict(modelRandomClass))^2)
+```
+#MSE for dream team from test data
+```{r}
+preddreamteamRegress <- predict(modelRandomClass_1, P.test)
+mean((P.test$dream_team-preddreamteamRegress) ^2)
+#Baseline MSE
+mean((P.train$dream_team - predict(modelRandomClass_1))^2)
+```
+#Classification
+```{r}
+P.train_dreamteam$dream_team<-as.factor(P.train_dreamteam$dream_team)
+```
+
+```{r}
+controlparameters <-trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE)
+parameterGrid <- expand.grid(mtry=c(12,17)) #maybe i could find this no. in matlab?
+
+
+
+
+#creating classification random forest model
+
+
+modelRandomClass_2 <- train(dream_team ~ ., data=P.train_dreamteam, method="rf", importance=TRUE, trControl=controlparameters, tuneGrid=parameterGrid)
+
+modelRandomClass_2
+varImp(modelRandomClass_2)
+```
+#Getting the scatterplots
+```{r}
+
+```
+
+#Now creating lollipops for top ten variables for points from rf
+```{r}
+# Library
+library(tidyverse)
+ 
+# Create data
+data=data.frame(x=c("completed_passes","t_creativity","t_minutes","bps_t","t_influence","ict_index_t","threat_t", "clean_sheets","clean_sheets_t","bonus_t"), y=c(100,98.0474,96.1142,93.82769,93.03703,91.40531,87.84151,86.36339,83.58515,81.12225))
+```
+```{r}
+# 1 - Custom markers (left)
+# note: shape = integer between 0 and 25
+# note: stroke exists only for shapes between 1 and 24
+ggplot(data, aes(x=x, y=y)) +
+  geom_segment( aes(x=x, xend=x, y=0, yend=y)) +
+  geom_point( size=5, color="red", fill=alpha("orange", 0.3), alpha=0.7, shape=21, stroke=2) 
+ 
+# 2 - Custom stems (right)
+# note: size is the width in mm
+# note: style can be in: "blank", "solid", "dashed", "dotted", "dotdash", "longdash","twodash"
+ggplot(data, aes(x=x, y=y)) +
+  geom_segment( aes(x=x, xend=x, y=0, yend=y) , size=1, color="blue", linetype="dotted" ) +
+  geom_point()
+
+```
+
+```{r}
+#sth new
+ggplot(data, aes(x=x, y=y)) +
+  geom_segment( aes(x=x, xend=x, y=0, yend=y), color="grey") +
+  geom_point( color="orange", size=4) +
+  theme_light() +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.x = element_blank()
+  ) +
+  xlab("") +
+  ylab("Value of Y")
+```
+```{r}
+# Horizontal 
+ggplot(data, aes(x=x, y=y)) +
+  geom_segment( aes(x=x, xend=x, y=0, yend=y), color="skyblue") +
+  geom_point( color="blue", size=4, alpha=0.6) +
+  theme_light() +
+  coord_flip() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  ) 
+```
+```{r}
+# Reorder
+data %>%
+  arrange(y) %>%
+  mutate(x=factor(x,x)) %>%
+  ggplot( aes(x=x, y=y)) +
+    geom_segment( aes(x=x, xend=x, y=0, yend=y), color="skyblue", size=1) +
+    geom_point( color="blue", size=4, alpha=0.6) +
+    theme_light() +
+    coord_flip() +
+    theme(
+      panel.grid.major.y = element_blank(),
+      panel.border = element_blank(),
+      axis.ticks.y = element_blank()
+    ) +
+  xlab("") +
+  ylab("Predictive Power of Predictors for Points from Random Forest")
+```
+#Two plots
+```{r}
+#Create data
+a=P.train$completed_passes
+b=P.train$gw16_pts
+ 
+# I divide the screen in 2 line and 1 column only
+my_screen_step1 <- split.screen(c(2, 1))
+ 
+# I add one graph on the screen number 1 which is on top :
+screen(my_screen_step1[1])
+plot( a,b , pch=20 , xlab="Number of Completed Passes" , cex=3 , col=rgb(0.4,0.9,0.8,0.5) )
+abline(lm(b ~ a))
+ 
+ 
+# I divide the second screen in 2 columns :
+my_screen_step2=split.screen(c(1, 2), screen = my_screen_step1[2])
+screen(my_screen_step2[1])
+hist(a, border=F , col=rgb(0.2,0.2,0.8,0.7) , main="" , xlab="distribution of Completed Passes")
+screen(my_screen_step2[2])
+hist(b, border=F , col=rgb(0.8,0.2,0.8,0.7) , main="" ,  xlab="distribution of Points Next GW")
+```
+
+
+
+#Correlation
+```{r}
+cor(P.train$Completed)
+```
+

@@ -1,0 +1,234 @@
+---
+title: "Standardization"
+author: "Shivam"
+date: "April 17, 2019"
+output: html_document
+---
+
+```{r}
+library(dvmisc)
+library(caret)
+library(readxl)
+```
+
+```{r}
+library(leaps)
+library(pROC)
+library(car)
+library(mosaic)
+library(readxl)
+library(readxl)
+gw28_onlyndupto <- read_excel("C:/College of Wooster/Sophomore second semester/Math Model/Final Project/Data/gw28 onlyndupto.xlsx")
+View(gw28_onlyndupto)
+gw15_only_upto_pre16 <- gw28_onlyndupto
+
+
+```
+
+#Be careful
+```{r}
+gw28_onlyndupto <- read_excel("C:/College of Wooster/Sophomore second semester/Math Model/Final Project/Data/gw28 onlyndupto.xlsx")
+View(gw28_onlyndupto)
+gw15_only_upto_pre16 <- gw28_onlyndupto
+```
+
+
+#Converting the Data 
+```{r}
+gw15_only_upto_pre16$t_assists = gw15_only_upto_pre16$t_assists/ 28
+gw15_only_upto_pre16$t_minutes = gw15_only_upto_pre16$t_minutes/ 28
+gw15_only_upto_pre16$t_goals_conceded = gw15_only_upto_pre16$t_goals_conceded/ 28
+gw15_only_upto_pre16$t_creativity = gw15_only_upto_pre16$t_creativity/ 28
+gw15_only_upto_pre16$t_influence = gw15_only_upto_pre16$t_influence/ 28
+gw15_only_upto_pre16$threat_t = gw15_only_upto_pre16$threat_t/ 28
+gw15_only_upto_pre16$bonus_t = gw15_only_upto_pre16$bonus_t/ 28
+gw15_only_upto_pre16$bps_t = gw15_only_upto_pre16$bps_t/ 28
+gw15_only_upto_pre16$ict_index_t = gw15_only_upto_pre16$ict_index_t/ 28
+gw15_only_upto_pre16$clean_sheets_t = gw15_only_upto_pre16$clean_sheets_t/ 28
+gw15_only_upto_pre16$red_cards_t = gw15_only_upto_pre16$red_cards_t/ 28
+gw15_only_upto_pre16$yellow_cards_t = gw15_only_upto_pre16$yellow_cards_t/ 28
+
+View(gw15_only_upto_pre16)
+```
+
+```{r}
+#Now the only data
+gw15_only_upto_pre16$assists = gw15_only_upto_pre16$assists-gw15_only_upto_pre16$t_assists
+gw15_only_upto_pre16$bonus = gw15_only_upto_pre16$bonus-gw15_only_upto_pre16$bonus_t
+gw15_only_upto_pre16$bps = gw15_only_upto_pre16$bps-gw15_only_upto_pre16$bps_t
+gw15_only_upto_pre16$clean_sheets = gw15_only_upto_pre16$clean_sheets-gw15_only_upto_pre16$clean_sheets_t
+gw15_only_upto_pre16$creativity = gw15_only_upto_pre16$creativity-gw15_only_upto_pre16$t_creativity
+gw15_only_upto_pre16$goals_conceded = gw15_only_upto_pre16$goals_conceded-gw15_only_upto_pre16$t_goals_conceded
+gw15_only_upto_pre16$goals_scored = gw15_only_upto_pre16$goals_scored-gw15_only_upto_pre16$t_goals_scored
+gw15_only_upto_pre16$ict_index = gw15_only_upto_pre16$ict_index-gw15_only_upto_pre16$ict_index_t
+gw15_only_upto_pre16$influence = gw15_only_upto_pre16$influence-gw15_only_upto_pre16$t_influence
+gw15_only_upto_pre16$minutes = gw15_only_upto_pre16$minutes-gw15_only_upto_pre16$t_minutes
+gw15_only_upto_pre16$red_cards = gw15_only_upto_pre16$red_cards-gw15_only_upto_pre16$red_cards_t
+gw15_only_upto_pre16$yellow_cards = gw15_only_upto_pre16$yellow_cards-gw15_only_upto_pre16$yellow_cards_t
+gw15_only_upto_pre16$threat = gw15_only_upto_pre16$threat-gw15_only_upto_pre16$threat_t
+View(gw15_only_upto_pre16)
+```
+
+#Writing data
+```{r}
+write.csv(gw15_only_upto_pre16, file = "gw28_onlynduptoRCorrect.csv")
+```
+#Combined data train and test
+```{r}
+library(readxl)
+CombinedTraining <- read_excel("C:/College of Wooster/Sophomore second semester/Math Model/Final Project/CombinedTraining.xlsx")
+
+```
+#Converting categorical to categorical
+```{r}
+#CombinedTraining$was_home <- factor(CombinedTraining$was_home)
+#CombinedTraining$indreamteam <- factor(CombinedTraining$indreamteam)
+View(CombinedTraining)
+```
+
+#Dividing data into train and test
+```{r}
+#Subset into training and testing data
+train <- sample(nrow(CombinedTraining), 0.8*nrow(CombinedTraining), replace = FALSE)
+P.train <- CombinedTraining[train,]
+#P.train<- P #comment this out if you want to do testing
+P.test <- CombinedTraining[-train,]
+```
+#Being careful with the variables for Points and DT
+```{r}
+P.train_dreamteam<-P.train[c(-63)]
+P.train_points<-P.train[c(-64)]
+```
+
+#Now training 
+```{r}
+controlparameters <-trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE)
+parameterGrid <- expand.grid(mtry=c(5,10)) #maybe i could find this no. in matlab?
+
+
+
+
+#creating classification, binary random forest model
+
+
+modelRandomClass_dt <- train(indreamteam ~ ., data=P.train_dreamteam, method="rf", importance=TRUE, trControl=controlparameters, tuneGrid=parameterGrid)
+
+modelRandomClass_dt
+varImp(modelRandomClass_dt)
+```
+#Now Testing for dreamteam
+```{r}
+preddreamteamRegress <- predict(modelRandomClass_dt, P.test)
+mean((P.test$indreamteam-preddreamteamRegress) ^2)
+#Baseline MSE
+mean(P.train$indreamteam) #Ask Dr. PAsteur how he got MSE for binary for regression
+```
+#Now training for points
+```{r}
+controlparameters <-trainControl(method="cv", number=5, savePredictions = TRUE, classProbs = TRUE)
+parameterGrid <- expand.grid(mtry=c(12,17)) #maybe i could find this no. in matlab?
+
+
+
+
+#creating regression for points.
+
+
+modelRandomClass_1 <- train(F_pts ~ ., data=P.train_points, method="rf", importance=TRUE, trControl=controlparameters, tuneGrid=parameterGrid)
+
+modelRandomClass_1
+varImp(modelRandomClass_1)
+```
+#Now Testing for points
+```{r}
+preddreamteamRegress <- predict(modelRandomClass_1, P.test)
+mean((P.test$F_pts-preddreamteamRegress) ^2)
+#Baseline MSE
+mean((P.test$points_per_game - P.test$F_pts)^2)
+mean((P.train$points_per_game - P.train$F_pts)^2)
+```
+#Summarywise regression
+```{r}
+f1 <- as.formula(paste("F_pts~", paste(names(CombinedTraining)[c(42, 57, 51,41,54,58,17,9)], 
+                                        collapse="+")))
+all<-regsubsets(f1, data = P.train)
+#summary(all)
+cbind(as.data.frame(summary(all)$which), summary(all)$rsq, summary(all)$adjr2, summary(all)$cp)
+```
+#fit
+```{r}
+reg.lm <- lm(F_pts~ t_minutes+ict_index_t+ict_index, data=P.train)
+plot(reg.lm)
+summary(reg.lm)
+vif(reg.lm)
+```
+#Confidence intervals
+```{r}
+confint(reg.lm)
+```
+
+#Now Testing for points with simple model
+```{r}
+preddreamteamRegress <- predict(reg.lm, P.test)
+View(preddreamteamRegress)
+mean((P.test$F_pts-preddreamteamRegress) ^2)
+#Baseline MSE
+mean((P.test$points_per_game - P.test$F_pts)^2)
+#mean((P.train$points_per_game - P.train$F_pts)^2)
+```
+#Applyin g rtrasnformation
+```{r}
+F_pts_T<-sqrt(P.train$F_pts)
+All_T<-sqrt(P.train$t_minutes+P.train$ict_index_t+P.train$ict_index)
+View(All_T)
+reg.lm_T <- lm(F_pts_T~ All_T, data =P.train)
+plot(reg.lm_T)
+summary(reg.lm_T)
+#vif(reg.lm_T)
+```
+#Applying transformation individually
+```{r}
+mins_T<-sqrt(P.train$t_minutes)
+ict_Trans<-sqrt(P.train$ict_index_t)
+ict_Trans_notavg<-sqrt(P.train$ict_index)
+
+#View(F_pts_T)
+reg.lm_T_two <- lm(F_pts_T~ mins_T+ict_Trans+ict_Trans_notavg, data=P.train)
+plot(reg.lm_T_two)
+summary(reg.lm_T_two)
+vif(reg.lm_T_two)
+```
+#Now Testing MSE for the two new regression models.
+```{r}
+preddreamteamRegress_2 <- predict(reg.lm_T, P.test)
+View(preddreamteamRegress_2)
+mean((P.test$F_pts-preddreamteamRegress_2) ^2)
+
+preddreamteamRegress_3 <- predict(reg.lm_T_two, P.test)
+mean((P.test$F_pts-preddreamteamRegress_3) ^2)
+```
+#Predicting gw 35 using gw34
+```{r}
+library(readxl)
+gw34_onlynduptoRCorrect <- read_excel("C:/College of Wooster/Sophomore second semester/Math Model/Final Project/gw34_onlynduptoRCorrect.xlsx")
+```
+
+```{r}
+predF_pts_rf <- predict(modelRandomClass_1, gw34_onlynduptoRCorrect)
+predd_team_rf <- predict(modelRandomClass_dt, gw34_onlynduptoRCorrect)
+gw34_onlynduptoRCorrect<-cbind(gw34_onlynduptoRCorrect[,1], predF_pts_rf, predd_team_rf)
+write.csv(gw34_onlynduptoRCorrect,"PredictionForm.csv")
+```
+
+```{r}
+cor(P.train$completed_passes, P.train$F_pts)
+cor(P.train$threat_t, P.train$F_pts)
+cor(P.train$bps_t, P.train$F_pts)
+cor(P.train$clean_sheets, P.train$F_pts)
+cor(P.train$clean_sheets_t, P.train$F_pts)
+cor(P.train$bonus_t, P.train$F_pts)
+cor(P.train$transfers_balance, P.train$F_pts)
+cor(P.train$transfers_out, P.train$F_pts)
+cor(P.train$selected_by_percent, P.train$F_pts)
+```
+

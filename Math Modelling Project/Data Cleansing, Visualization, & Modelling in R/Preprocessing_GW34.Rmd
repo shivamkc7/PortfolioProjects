@@ -1,0 +1,60 @@
+---
+title: "GW34 cleaning"
+author: "Shivam"
+date: "April 19, 2019"
+output: html_document
+---
+
+```{r}
+library(dvmisc)
+library(caret)
+library(readxl)
+library(leaps)
+library(pROC)
+library(car)
+library(mosaic)
+library(readxl)
+
+gw34_only_upto <- read_excel("C:/College of Wooster/Sophomore second semester/Math Model/Final Project/Data/gw34 only+upto.xlsx")
+gw15_only_upto_pre16 <- gw34_only_upto
+```
+
+#Converting the Data 
+```{r}
+gw15_only_upto_pre16$t_assists = gw15_only_upto_pre16$t_assists/ 34
+gw15_only_upto_pre16$t_minutes = gw15_only_upto_pre16$t_minutes/ 34
+gw15_only_upto_pre16$t_goals_conceded = gw15_only_upto_pre16$t_goals_conceded/ 34
+gw15_only_upto_pre16$t_creativity = gw15_only_upto_pre16$t_creativity/ 34
+gw15_only_upto_pre16$t_influence = gw15_only_upto_pre16$t_influence/ 34
+gw15_only_upto_pre16$threat_t = gw15_only_upto_pre16$threat_t/ 34
+gw15_only_upto_pre16$bonus_t = gw15_only_upto_pre16$bonus_t/ 34
+gw15_only_upto_pre16$bps_t = gw15_only_upto_pre16$bps_t/ 34
+gw15_only_upto_pre16$ict_index_t = gw15_only_upto_pre16$ict_index_t/ 34
+gw15_only_upto_pre16$clean_sheets_t = gw15_only_upto_pre16$clean_sheets_t/ 34
+gw15_only_upto_pre16$red_cards_t = gw15_only_upto_pre16$red_cards_t/ 34
+gw15_only_upto_pre16$yellow_cards_t = gw15_only_upto_pre16$yellow_cards_t/ 34
+
+```
+
+```{r}
+#Now the only data
+gw15_only_upto_pre16$assists = gw15_only_upto_pre16$assists-gw15_only_upto_pre16$t_assists
+gw15_only_upto_pre16$bonus = gw15_only_upto_pre16$bonus-gw15_only_upto_pre16$bonus_t
+gw15_only_upto_pre16$bps = gw15_only_upto_pre16$bps-gw15_only_upto_pre16$bps_t
+gw15_only_upto_pre16$clean_sheets = gw15_only_upto_pre16$clean_sheets-gw15_only_upto_pre16$clean_sheets_t
+gw15_only_upto_pre16$creativity = gw15_only_upto_pre16$creativity-gw15_only_upto_pre16$t_creativity
+gw15_only_upto_pre16$goals_conceded = gw15_only_upto_pre16$goals_conceded-gw15_only_upto_pre16$t_goals_conceded
+gw15_only_upto_pre16$goals_scored = gw15_only_upto_pre16$goals_scored-gw15_only_upto_pre16$t_goals_scored
+gw15_only_upto_pre16$ict_index = gw15_only_upto_pre16$ict_index-gw15_only_upto_pre16$ict_index_t
+gw15_only_upto_pre16$influence = gw15_only_upto_pre16$influence-gw15_only_upto_pre16$t_influence
+gw15_only_upto_pre16$minutes = gw15_only_upto_pre16$minutes-gw15_only_upto_pre16$t_minutes
+gw15_only_upto_pre16$red_cards = gw15_only_upto_pre16$red_cards-gw15_only_upto_pre16$red_cards_t
+gw15_only_upto_pre16$yellow_cards = gw15_only_upto_pre16$yellow_cards-gw15_only_upto_pre16$yellow_cards_t
+gw15_only_upto_pre16$threat = gw15_only_upto_pre16$threat-gw15_only_upto_pre16$threat_t
+View(gw15_only_upto_pre16)
+```
+
+#Writing data
+```{r}
+write.csv(gw15_only_upto_pre16, file = "gw34l_onlynduptoRCorrect.csv")
+```
