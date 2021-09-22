@@ -1,0 +1,943 @@
+---
+title: "Ordered PRobit Model"
+author: "Shivam K C"
+date: "2/2/2021"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(car)
+library(lme4)
+library(lmerTest)
+library(matlab)
+library(gtools)
+library(stringr)
+library(purrr)
+library(data.table)
+library(writexl)
+library(openxlsx)
+library(neuralnet)
+library(tidyr)
+library(data.table)
+library(car)
+library(ROCR)
+library(boot)
+```
+
+```{r}
+select <- dplyr::select #cuz running MASS and dplyr together
+```
+
+#Pivoting 8 seasons worth of data for probit model
+```{r}
+
+#Get the data and as factor W,L,D in an ordered fashion
+
+cd_1 <- combineddataset 
+#cd$outcome <- factor(cd$record, ordered = TRUE, levels=c("L","D","W")) (i)
+cd_1 <- cd_1 %>% mutate(outcome = ifelse(record=="W",1,ifelse(record=="L",0,ifelse(record=="D",0.5,"NA")))) #I wonder (i) is better than this for ANN output unit?
+
+# before normalizign , take care of NAs and categorical variables
+cd_1 <- cd_1 %>% select(-performance_in_previous_6_games,-goals_for_in_previous_6_games,-goals_against_in_previous_6_games) #change here if you want to include last 6 games performance
+
+cd_1<- cd_1 %>% select(-record)
+
+cd_1<-na.omit(cd_1) #it seems like NA is already taken care of here!
+
+
+```
+
+#Negating goals_against variable [might be useful for ANN 1]
+```{r}
+# cd_1$Goals_against_so_far <-  cd_1$Goals_against_so_far * -1
+# cd_1$goals_against_in_previous_1_game <-  cd_1$goals_against_in_previous_1_game * -1
+# cd_1$goals_against_in_previous_2_games <-  cd_1$goals_against_in_previous_2_games * -1
+# cd_1$goals_against_in_previous_3_games <-  cd_1$goals_against_in_previous_3_games* -1
+# cd_1$goals_against_in_previous_4_games <-  cd_1$goals_against_in_previous_4_games * -1
+# cd_1$goals_against_in_previous_5_games <-  cd_1$goals_against_in_previous_5_games * -1 #however it isn't intuitive as goals_against difference increase mean that home team conceded less? #complicated. let's see if anyy difference #however, this might be useful for ANN!!!
+```
+#ANN code to pivot
+```{r}
+pivot_probit_data <-dcast(setDT(cd_1), id~rowid(id), value.var=c("season","stage", "TeamID", "home_team_api_id","away_team_api_id","home_team_goal","away_team_goal","B365H","B365D","B365A","Goals_for_so_far","Goals_against_so_far","overall_performance_so_far","cum_home_performance_so_far","cum_away_performance_so_far","performance_in_previous_game","performance_in_previous_2_games","performance_in_previous_3_games","performance_in_previous_4_games","performance_in_previous_5_games","goals_for_in_previous_2_games","goals_for_in_previous_1_game","goals_for_in_previous_3_games","goals_for_in_previous_4_games","goals_for_in_previous_5_games","location","goals_against_in_previous_1_game","goals_against_in_previous_2_games","goals_against_in_previous_3_games","goals_against_in_previous_4_games","goals_against_in_previous_5_games", "outcome")) # one variable: ID + 32 unique variables X 2 = 65 variables!
+
+```
+
+#Get H/A/D outcomes variables
+```{r}
+pivot_probit_data <- pivot_probit_data %>% mutate(match_outcome=ifelse(home_team_goal_1==away_team_goal_1,"D",ifelse(home_team_goal_1>away_team_goal_1,"H","A")))
+```
+
+
+#Then rename the predictors according H and A suffixes
+
+```{r}
+#attach(pivot_probit_data)
+# pivot_probit_data <- pivot_probit_data%>% mutate(Goals_for_so_far_H=0)
+# pivot_probit_data <- pivot_probit_data%>% mutate(Goals_for_so_far_A=0)
+if (pivot_probit_data$TeamID_1==pivot_probit_data$home_team_api_id_1){
+  pivot_probit_data$Goals_for_so_far_H= pivot_probit_data$Goals_for_so_far_1
+  pivot_probit_data$Goals_for_so_far_A= pivot_probit_data$Goals_for_so_far_2
+  
+  pivot_probit_data$Goals_against_so_far_H= pivot_probit_data$Goals_against_so_far_1
+  pivot_probit_data$Goals_against_so_far_A= pivot_probit_data$Goals_against_so_far_2
+  
+  pivot_probit_data$overall_performance_so_far_H= pivot_probit_data$overall_performance_so_far_1
+  pivot_probit_data$overall_performance_so_far_A= pivot_probit_data$overall_performance_so_far_2
+  
+  pivot_probit_data$cum_home_performance_so_far_H= pivot_probit_data$cum_home_performance_so_far_1
+  pivot_probit_data$cum_home_performance_so_far_A= pivot_probit_data$cum_home_performance_so_far_2
+  
+  pivot_probit_data$cum_away_performance_so_far_H= pivot_probit_data$cum_away_performance_so_far_1
+  pivot_probit_data$cum_away_performance_so_far_A= pivot_probit_data$cum_away_performance_so_far_2
+  
+    pivot_probit_data$performance_in_previous_game_H= pivot_probit_data$performance_in_previous_game_1
+  pivot_probit_data$performance_in_previous_game_A= pivot_probit_data$performance_in_previous_game_2
+  
+  pivot_probit_data$performance_in_previous_2_games_H= pivot_probit_data$performance_in_previous_2_games_1
+  pivot_probit_data$performance_in_previous_2_games_A= pivot_probit_data$performance_in_previous_2_games_2
+  
+  pivot_probit_data$performance_in_previous_3_games_H= pivot_probit_data$performance_in_previous_3_games_1
+  pivot_probit_data$performance_in_previous_3_games_A= pivot_probit_data$performance_in_previous_3_games_2
+  
+  pivot_probit_data$performance_in_previous_4_games_H= pivot_probit_data$performance_in_previous_4_games_1
+  pivot_probit_data$performance_in_previous_4_games_A= pivot_probit_data$performance_in_previous_4_games_2
+  
+ pivot_probit_data$performance_in_previous_5_games_H= pivot_probit_data$performance_in_previous_5_games_1
+  pivot_probit_data$performance_in_previous_5_games_A= pivot_probit_data$performance_in_previous_5_games_2 
+  
+   pivot_probit_data$goals_for_in_previous_2_games_H= pivot_probit_data$goals_for_in_previous_2_games_1
+  pivot_probit_data$goals_for_in_previous_2_games_A= pivot_probit_data$goals_for_in_previous_2_games_2 
+  
+  pivot_probit_data$goals_for_in_previous_1_game_H= pivot_probit_data$goals_for_in_previous_1_game_1
+  pivot_probit_data$goals_for_in_previous_1_game_A= pivot_probit_data$goals_for_in_previous_1_game_2  #changed th s here
+  
+   pivot_probit_data$goals_for_in_previous_3_games_H= pivot_probit_data$goals_for_in_previous_3_games_1
+  pivot_probit_data$goals_for_in_previous_3_games_A= pivot_probit_data$goals_for_in_previous_3_games_2
+  
+  pivot_probit_data$goals_for_in_previous_4_games_H= pivot_probit_data$goals_for_in_previous_4_games_1
+  pivot_probit_data$goals_for_in_previous_4_games_A= pivot_probit_data$goals_for_in_previous_4_games_2
+  
+ pivot_probit_data$goals_for_in_previous_5_games_H= pivot_probit_data$goals_for_in_previous_5_games_1
+  pivot_probit_data$goals_for_in_previous_5_games_A= pivot_probit_data$goals_for_in_previous_5_games_2 
+  
+   pivot_probit_data$location_H= pivot_probit_data$location_1
+  pivot_probit_data$location_A= pivot_probit_data$location_2
+  
+  pivot_probit_data$goals_against_in_previous_1_game_H= pivot_probit_data$goals_against_in_previous_1_game_1
+  pivot_probit_data$goals_against_in_previous_1_game_A= pivot_probit_data$goals_against_in_previous_1_game_2
+  
+ pivot_probit_data$goals_against_in_previous_2_games_H= pivot_probit_data$goals_against_in_previous_2_games_1
+  pivot_probit_data$goals_against_in_previous_2_games_A= pivot_probit_data$goals_against_in_previous_2_games_2 
+  
+   pivot_probit_data$goals_against_in_previous_3_games_H= pivot_probit_data$goals_against_in_previous_3_games_1
+  pivot_probit_data$goals_against_in_previous_3_games_A= pivot_probit_data$goals_against_in_previous_3_games_2
+  
+     pivot_probit_data$goals_against_in_previous_4_games_H= pivot_probit_data$goals_against_in_previous_4_games_1
+  pivot_probit_data$goals_against_in_previous_4_games_A= pivot_probit_data$goals_against_in_previous_4_games_2
+  
+  pivot_probit_data$goals_against_in_previous_5_games_H= pivot_probit_data$goals_against_in_previous_5_games_1
+  pivot_probit_data$goals_against_in_previous_5_games_A= pivot_probit_data$goals_against_in_previous_5_games_2
+  
+}else if (pivot_probit_data$TeamID_1== pivot_probit_data$away_team_api_id_1){
+  pivot_probit_data$Goals_for_so_far_H= pivot_probit_data$Goals_for_so_far_2
+  pivot_probit_data$Goals_for_so_far_A= pivot_probit_data$Goals_for_so_far_1
+  
+  pivot_probit_data$Goals_against_so_far_H= pivot_probit_data$Goals_against_so_far_2
+  pivot_probit_data$Goals_against_so_far_A= pivot_probit_data$Goals_against_so_far_1
+  
+   pivot_probit_data$overall_performance_so_far_H= pivot_probit_data$overall_performance_so_far_2
+  pivot_probit_data$overall_performance_so_far_A= pivot_probit_data$overall_performance_so_far_1
+  
+  pivot_probit_data$cum_home_performance_so_far_H= pivot_probit_data$cum_home_performance_so_far_2
+  pivot_probit_data$cum_home_performance_so_far_A= pivot_probit_data$cum_home_performance_so_far_1
+  
+   pivot_probit_data$cum_away_performance_so_far_H= pivot_probit_data$cum_away_performance_so_far_2
+  pivot_probit_data$cum_away_performance_so_far_A= pivot_probit_data$cum_away_performance_so_far_1
+  
+  pivot_probit_data$performance_in_previous_game_H= pivot_probit_data$performance_in_previous_game_2
+  pivot_probit_data$performance_in_previous_game_A= pivot_probit_data$performance_in_previous_game_1
+  
+  pivot_probit_data$performance_in_previous_2_games_H= pivot_probit_data$performance_in_previous_2_games_2
+  pivot_probit_data$performance_in_previous_2_games_A= pivot_probit_data$performance_in_previous_2_games_1
+  
+  pivot_probit_data$performance_in_previous_3_games_H= pivot_probit_data$performance_in_previous_3_games_2
+  pivot_probit_data$performance_in_previous_3_games_A= pivot_probit_data$performance_in_previous_3_games_1
+  
+  pivot_probit_data$performance_in_previous_4_games_H= pivot_probit_data$performance_in_previous_4_games_2
+  pivot_probit_data$performance_in_previous_4_games_A= pivot_probit_data$performance_in_previous_4_games_1
+  
+  pivot_probit_data$performance_in_previous_5_games_H= pivot_probit_data$performance_in_previous_5_games_2
+  pivot_probit_data$performance_in_previous_5_games_A= pivot_probit_data$performance_in_previous_5_games_1 
+  
+  pivot_probit_data$goals_for_in_previous_2_games_H= pivot_probit_data$goals_for_in_previous_2_games_2
+  pivot_probit_data$goals_for_in_previous_2_games_A= pivot_probit_data$goals_for_in_previous_2_games_1 
+  
+  pivot_probit_data$goals_for_in_previous_1_game_H= pivot_probit_data$goals_for_in_previous_1_game_2
+  pivot_probit_data$goals_for_in_previous_1_game_A= pivot_probit_data$goals_for_in_previous_1_game_1 #changed the S here
+  
+  pivot_probit_data$goals_for_in_previous_3_games_H= pivot_probit_data$goals_for_in_previous_3_games_2
+  pivot_probit_data$goals_for_in_previous_3_games_A= pivot_probit_data$goals_for_in_previous_3_games_1
+  
+  pivot_probit_data$goals_for_in_previous_4_games_H= pivot_probit_data$goals_for_in_previous_4_games_2
+  pivot_probit_data$goals_for_in_previous_4_games_A= pivot_probit_data$goals_for_in_previous_4_games_1
+  
+  pivot_probit_data$goals_for_in_previous_5_games_H= pivot_probit_data$goals_for_in_previous_5_games_2
+  pivot_probit_data$goals_for_in_previous_5_games_A= pivot_probit_data$goals_for_in_previous_5_games_1 
+  
+  pivot_probit_data$location_H= pivot_probit_data$location_2
+  pivot_probit_data$location_A= pivot_probit_data$location_1
+  
+  pivot_probit_data$goals_against_in_previous_1_game_H= pivot_probit_data$goals_against_in_previous_1_game_2
+  pivot_probit_data$goals_against_in_previous_1_game_A= pivot_probit_data$goals_against_in_previous_1_game_1
+  
+  pivot_probit_data$goals_against_in_previous_2_games_H= pivot_probit_data$goals_against_in_previous_2_games_2
+  pivot_probit_data$goals_against_in_previous_2_games_A= pivot_probit_data$goals_against_in_previous_2_games_1 
+  
+  pivot_probit_data$goals_against_in_previous_3_games_H= pivot_probit_data$goals_against_in_previous_3_games_2
+  pivot_probit_data$goals_against_in_previous_3_games_A= pivot_probit_data$goals_against_in_previous_3_games_1
+  
+  pivot_probit_data$goals_against_in_previous_4_games_H= pivot_probit_data$goals_against_in_previous_4_games_2
+  pivot_probit_data$goals_against_in_previous_4_games_A= pivot_probit_data$goals_against_in_previous_4_games_1
+  
+  pivot_probit_data$goals_against_in_previous_5_games_H= pivot_probit_data$goals_against_in_previous_5_games_2
+  pivot_probit_data$goals_against_in_previous_5_games_A= pivot_probit_data$goals_against_in_previous_5_games_1
+}
+
+#change: if i include the last 6 gws data, add more variables here!
+```
+#improve your type of variables by using differences!
+
+```{r}
+#Is that why there was ECI difference?
+#subsetting data
+probit_data_s <- pivot_probit_data %>% select(id, season_1,stage_1,home_team_goal_1,away_team_goal_2,B365H_1,B365D_1,B365A_1,match_outcome,Goals_for_so_far_H, Goals_against_so_far_H,Goals_for_so_far_A,Goals_against_so_far_H,Goals_against_so_far_A,overall_performance_so_far_H,overall_performance_so_far_A,cum_home_performance_so_far_H,cum_home_performance_so_far_A,cum_away_performance_so_far_H,cum_away_performance_so_far_A,performance_in_previous_game_H,performance_in_previous_game_A,performance_in_previous_2_games_H,performance_in_previous_2_games_A,performance_in_previous_3_games_H,performance_in_previous_3_games_A,performance_in_previous_4_games_H,performance_in_previous_4_games_A,performance_in_previous_5_games_H,performance_in_previous_5_games_A,goals_for_in_previous_2_games_H,goals_for_in_previous_2_games_A,goals_for_in_previous_3_games_H,goals_for_in_previous_3_games_A,goals_for_in_previous_4_games_H,goals_for_in_previous_4_games_A,goals_for_in_previous_5_games_H,goals_for_in_previous_5_games_A,goals_for_in_previous_1_game_H,goals_against_in_previous_1_game_H,goals_against_in_previous_1_game_A, goals_against_in_previous_2_games_H,goals_against_in_previous_2_games_A,goals_against_in_previous_3_games_H,goals_against_in_previous_3_games_A,goals_against_in_previous_4_games_H,goals_against_in_previous_4_games_A,goals_against_in_previous_5_games_H,goals_against_in_previous_5_games_A,goals_for_in_previous_1_game_A)
+
+#14,17,19,21,22:115,146,147
+
+```
+#Doing the differences
+```{r}
+probit_data_s <- probit_data_s  %>% mutate(Goals_against_so_far_d=Goals_against_so_far_H - Goals_against_so_far_A)
+
+probit_data_s <- probit_data_s  %>% mutate(Goals_for_so_far_d=Goals_for_so_far_H - Goals_for_so_far_A)
+
+probit_data_s <- probit_data_s  %>% mutate(overall_performance_so_far_d=overall_performance_so_far_H - overall_performance_so_far_A)
+
+probit_data_s <- probit_data_s  %>% mutate(cum_performance_so_far_d=cum_home_performance_so_far_H - cum_away_performance_so_far_A) #[must simplify how to use the cumulative home performance ..i think it makes sense to use cum_home_performance_so_far_H - cum_away_performance_so_far_A]
+
+probit_data_s <- probit_data_s  %>% mutate(performance_in_previous_game_d=performance_in_previous_game_H - performance_in_previous_game_A)
+
+
+
+probit_data_s <- probit_data_s  %>% mutate(performance_in_previous_2_games_d=performance_in_previous_2_games_H - performance_in_previous_2_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(performance_in_previous_3_games_d=performance_in_previous_3_games_H - performance_in_previous_3_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(performance_in_previous_4_games_d=performance_in_previous_4_games_H - performance_in_previous_4_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(performance_in_previous_5_games_d=performance_in_previous_5_games_H - performance_in_previous_5_games_A)
+#
+probit_data_s <- probit_data_s  %>% mutate(goals_for_in_previous_1_game_d=goals_for_in_previous_1_game_H - goals_for_in_previous_1_game_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_for_in_previous_2_games_d=goals_for_in_previous_2_games_H - goals_for_in_previous_2_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_for_in_previous_3_games_d=goals_for_in_previous_3_games_H - goals_for_in_previous_3_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_for_in_previous_4_games_d=goals_for_in_previous_4_games_H - goals_for_in_previous_4_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_for_in_previous_5_games_d=goals_for_in_previous_5_games_H - goals_for_in_previous_5_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_against_in_previous_1_game_d=goals_against_in_previous_1_game_H - goals_against_in_previous_1_game_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_against_in_previous_2_games_d=goals_against_in_previous_2_games_H - goals_against_in_previous_2_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_against_in_previous_3_games_d=goals_against_in_previous_3_games_H - goals_against_in_previous_3_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_against_in_previous_4_games_d=goals_against_in_previous_4_games_H - goals_against_in_previous_4_games_A)
+
+probit_data_s <- probit_data_s  %>% mutate(goals_against_in_previous_5_games_d=goals_against_in_previous_5_games_H - goals_against_in_previous_5_games_A)
+#change here for adding gw 6!
+#19 vars?
+```
+
+
+```{r}
+#rough
+
+#suset data
+probit_run_model_data<-probit_data_s %>% select(id,season_1,match_outcome,stage_1,B365H_1,B365D_1,B365A_1,Goals_against_so_far_d,Goals_for_so_far_d,overall_performance_so_far_d,cum_performance_so_far_d,performance_in_previous_game_d,performance_in_previous_2_games_d,performance_in_previous_3_games_d,performance_in_previous_4_games_d,performance_in_previous_5_games_d,goals_for_in_previous_1_game_d,goals_for_in_previous_2_games_d,goals_for_in_previous_3_games_d,goals_for_in_previous_4_games_d,goals_for_in_previous_5_games_d,goals_against_in_previous_1_game_d,goals_against_in_previous_2_games_d,goals_against_in_previous_3_games_d,goals_against_in_previous_4_games_d,goals_against_in_previous_5_games_d)
+#19 vars + match id + match outcome+season_1+ 3 X B365
+
+```
+#Creating a different dataset for probit model with per game features
+```{r}
+p_2<-probit_run_model_data
+p_2$Goals_against_so_far_d<-p_2$Goals_against_so_far_d / (p_2$stage_1-1)
+p_2$Goals_for_so_far_d<-p_2$Goals_for_so_far_d / (p_2$stage_1-1)
+p_2$overall_performance_so_far_d<-p_2$overall_performance_so_far_d / (p_2$stage_1-1)
+p_2$cum_performance_so_far_d<-p_2$cum_performance_so_far_d/ ((p_2$stage_1-1)/2) #cumulativ performance is = cumulative performance of home team at home - cumulative performance of away team at away [would probably need to change this later by how many away games and home games played by the teams]
+
+#One caveat is double gw's problem? but that's fine!
+#cum_performance_so_far_d is the differnece of cum_home_performance_so_far_H - cum_away_performance_so_far_A
+```
+
+#Run probit model
+```{r}
+#fitst order the dependent variable OR as.factor the match_outcome
+#probit_run_model_data$match_outcome<-ordered(as.factor(recode(probit_run_model_data$match_outcome,"H=1; D=0.5; A=0")))
+probit_run_model_data$match_outcome<-as.factor(probit_run_model_data$match_outcome)
+p_2$match_outcome<-as.factor(p_2$match_outcome)
+  
+table(probit_run_model_data$match_outcome)
+
+#Separate training and testing data set before running the model [using ANN code?]
+
+# First separate train and test data
+train_data_p <- probit_run_model_data %>% filter(season_1 == "2008/2009" |season_1 == "2009/2010"|season_1 == "2010/2011"|season_1 == "2011/2012"|season_1 == "2012/2013"|season_1 == "2013/2014")
+#%>% select(-performance_in_previous_6_games,-goals_for_in_previous_6_games,-goals_against_in_previous_6_games) [MIGHT NEED THIS LATER WHEN USING LAST 6 GWS!]
+
+train_data_p_2 <- p_2 %>% filter(season_1 == "2008/2009" |season_1 == "2009/2010"|season_1 == "2010/2011"|season_1 == "2011/2012"|season_1 == "2012/2013"|season_1 == "2013/2014")
+
+test_data_p <- probit_run_model_data %>% filter(season_1 == "2014/2015" |season_1 == "2015/2016")
+
+test_data_p_2 <- p_2 %>% filter(season_1 == "2014/2015" |season_1 == "2015/2016")
+#%>% select(-performance_in_previous_6_games,-goals_for_in_previous_6_games,-goals_against_in_previous_6_games)
+# Taking care of NA's
+
+#Removing NA's from train and test data initially; # already taken care of in line with cd_1 na.omit!
+#train_data<-na.omit(train_data) #only do na.omit for until first 5 gws initially!
+#test_data<-na.omit(test_data)
+str(train_data_p$match_outcome)
+str(train_data_p_2$match_outcome)
+# A = 1, D = 2, H = 3
+```
+
+#Run the probit model code on train data!
+```{r}
+library(MASS)
+set.seed(1234)
+p_model_1<-polr(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d+cum_performance_so_far_d+performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1, data=train_data_p,na.action = na.omit, method = "probit")
+
+summary(p_model_1)
+
+library(pscl)
+pR2(p_model_1) #learn to interpret this later!
+logLik(p_model_1)
+```
+
+#Run the probit model code on train data! fpr p_2 dataset where per game variables are used!
+```{r}
+set.seed(1234)
+p_2_model_1<-polr(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d 
+                    +cum_performance_so_far_d
+                    +performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1
+                  , data=train_data_p_2,na.action = na.omit, method = "probit") #remember to change the data!
+
+summary(p_2_model_1)
+# 
+# pR2(p_2_model_1) #learn to interpret this later!
+# logLik(p_2_model_1)
+```
+
+#Experimtenting with Beautiful outputs in R
+```{r}
+# library(sjPlot)
+# require("sjPlot")
+# labdep<-c("match_outcome")
+# lab<- c("Goals_against_so_far_d","Goals_for_so_far_d","overall_performance_so_far_d" 
+#                     ,"cum_performance_so_far_d"
+#                     ,"performance_in_previous_game_d","performance_in_previous_2_games_d","performance_in_previous_3_games_d","performance_in_previous_4_games_d","performance_in_previous_5_games_d","goals_for_in_previous_1_game_d","goals_for_in_previous_2_games_d","goals_for_in_previous_3_games_d","goals_for_in_previous_4_games_d","goals_for_in_previous_5_games_d","goals_against_in_previous_1_game_d","goals_against_in_previous_2_games_d","goals_against_in_previous_3_games_d","goals_against_in_previous_4_games_d","goals_against_in_previous_5_games_d","B365H_1","B365D_1","B365A_1")
+# sjt.glm(p_2_model_1,
+#         labelDependentVariables=labdep,
+#         labelPredictors=lab,
+#         file="or_table1.html")
+```
+
+```{r}
+#getting fitted values from the model on training dataset
+x<-p_2_model_1$fitted.values
+fitted<-predict(p_2_model_1,newdata=train_data_p_2,type="class")
+#confusion matrix for train
+table(train_data_p_2$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+
+#54.1% accuracy rate for p_2_model_1
+
+fitted<-predict(p_2_model_1,newdata=test_data_p_2,type="class")
+#confusion matrix for test
+tab<-table(test_data_p_2$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome) 50.6% accuracy rate for p_2_model_1 
+tab
+accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test_data_p_2)
+accuracy
+```
+#Checking if i can do cv probit model 
+```{r}
+set.seed(450)
+cv.accuracy <- NULL
+k <- 10
+library(plyr) 
+pbar <- create_progress_bar('text')
+pbar$init(k)
+for(i in 1:k){
+    index <- sample(1:nrow(p_2),round(0.9*nrow(p_2)))
+    train.cv <- p_2[index,]
+    test.cv <- p_2[-index,]
+    nn <- polr(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d 
+                    +cum_performance_so_far_d
+                    +performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1
+                  , data=train.cv,na.action = na.omit, method = "probit")
+    fitted<-predict(nn,newdata=test.cv,type="class")
+    #pr.nn <- compute(nn,test.cv[,1:13]) #this is where i should predict on test data using nn!
+    tab<-table(test.cv$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+    accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test.cv)
+    #pr.nn <- pr.nn$net.result*(max(data$medv)-min(data$medv))+min(data$medv)   # this i dont need. what i need is to plot tables and get classification errors!
+    #test.cv.r <- (test.cv$medv)*(max(data$medv)-min(data$medv))+min(data$medv)   
+    cv.accuracy[i] <-   accuracy  
+    pbar$step()
+}
+```
+
+```{r}
+#Cross validation accuracy!!!
+mean(cv.accuracy) #53.7%
+cv.accuracy
+boxplot(cv.accuracy,xlab='ACCURACY CV',col='cyan',
+        border='blue',names='CV ACCURACY',
+        main='CV Accuracy for Probit Model',horizontal=TRUE)
+```
+
+#what if i do different seed?
+```{r}
+set.seed(45)
+cv.accuracy <- NULL
+k <- 10
+library(plyr) 
+pbar <- create_progress_bar('text')
+pbar$init(k)
+for(i in 1:k){
+    index <- sample(1:nrow(p_2),round(0.9*nrow(p_2)))
+    train.cv <- p_2[index,]
+    test.cv <- p_2[-index,]
+    nn <- polr(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d 
+                    +cum_performance_so_far_d
+                    +performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1
+                  , data=train.cv,na.action = na.omit, method = "probit")
+    fitted<-predict(nn,newdata=test.cv,type="class")
+    #pr.nn <- compute(nn,test.cv[,1:13]) #this is where i should predict on test data using nn!
+    tab<-table(test.cv$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+    accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test.cv)
+    #pr.nn <- pr.nn$net.result*(max(data$medv)-min(data$medv))+min(data$medv)   # this i dont need. what i need is to plot tables and get classification errors!
+    #test.cv.r <- (test.cv$medv)*(max(data$medv)-min(data$medv))+min(data$medv)   
+    cv.accuracy[i] <-   accuracy  
+    pbar$step()
+}
+```
+
+```{r}
+#Cross validation accuracy!!!
+mean(cv.accuracy) #52.1%
+cv.accuracy
+boxplot(cv.accuracy,xlab='ACCURACY CV',col='cyan',
+        border='blue',names='CV ACCURACY',
+        main='CV Accuracy for Probit Model',horizontal=TRUE)
+```
+
+#what if i do 80/20? CV
+```{r}
+set.seed(450)
+cv.accuracy <- NULL
+k <- 10
+library(plyr) 
+pbar <- create_progress_bar('text')
+pbar$init(k)
+for(i in 1:k){
+    index <- sample(1:nrow(p_2),round(0.8*nrow(p_2)))
+    train.cv <- p_2[index,]
+    test.cv <- p_2[-index,]
+    nn <- polr(match_outcome~
+                 Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d 
+                    +cum_performance_so_far_d
+                    +performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+
+                 performance_in_previous_4_games_d
+                 +performance_in_previous_5_games_d
+               +goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d
+               +goals_for_in_previous_3_games_d
+               +goals_for_in_previous_4_games_d+
+               +goals_for_in_previous_5_games_d
+               +goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d
+               +goals_against_in_previous_4_games_d
+               +goals_against_in_previous_5_games_d
+                + B365H_1
+               +B365D_1+B365A_1
+                  , data=train.cv,na.action = na.omit, method = "probit")
+    fitted<-predict(nn,newdata=test.cv,type="class")
+    #pr.nn <- compute(nn,test.cv[,1:13]) #this is where i should predict on test data using nn!
+    tab<-table(test.cv$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+    accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test.cv)
+    #pr.nn <- pr.nn$net.result*(max(data$medv)-min(data$medv))+min(data$medv)   # this i dont need. what i need is to plot tables and get classification errors!
+    #test.cv.r <- (test.cv$medv)*(max(data$medv)-min(data$medv))+min(data$medv)   
+    cv.accuracy[i] <-   accuracy  
+    pbar$step()
+}
+```
+
+```{r}
+#Cross validation accuracy!!!
+mean(cv.accuracy) #53.6%
+cv.accuracy
+boxplot(cv.accuracy,xlab='ACCURACY CV',col='cyan',
+        border='blue',names='CV ACCURACY',
+        main='CV Accuracy for Probit Model',horizontal=TRUE) #change the color!!!
+```
+#Summarizing one of the CV probit models
+```{r}
+summary(nn)
+```
+```{r}
+#Getting P-values from the t-values!
+(ctable <- coef(summary(nn)))
+## calculate and store p values
+p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
+
+## combined table
+(ctable <- cbind(ctable, "p value" = p))
+```
+
+```{r}
+#Judging the statistical significance of the variables based on p-value
+ctable<-as.data.frame(ctable)
+ptable<-ctable %>% mutate(significance = ifelse(`p value` <= 0.05,"*","not statistically significant"))
+ptable
+```
+
+```{r}
+#getting confidence intervals
+confint(nn,level=.95)
+#pR2(nn)
+```
+#Checking the multicolinearity of the variables in the probit model
+```{r}
+match_outcome_n<-as.numeric(train.cv$match_outcome)
+nn_linear<- lm(match_outcome_n~
+                 #Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d 
+                    #+cum_performance_so_far_d
+                    #+performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+
+                 performance_in_previous_4_games_d
+                 #+performance_in_previous_5_games_d
+               #+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d
+               #+goals_for_in_previous_3_games_d
+               +goals_for_in_previous_4_games_d+
+               #+goals_for_in_previous_5_games_d
+               #+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d
+               +goals_against_in_previous_4_games_d
+               #+goals_against_in_previous_5_games_d
+                + B365H_1
+               #+B365D_1+B365A_1
+                  , data=train.cv,na.action = na.omit)
+summary(nn_linear)
+vif(nn_linear)
+```
+
+#Getting an instance of the probit model predictions on a test data
+```{r}
+fitted<-predict(nn,newdata=test.cv,type="class")
+    tab<-table(test.cv$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+    tab
+    accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test.cv)
+    accuracy
+```
+
+
+```{r}
+#Let's expeirment with different probit pacakge in R [is this accurate?]
+nn_1 <- glm(match_outcome~Goals_for_so_far_d+overall_performance_so_far_d 
+                    +cum_performance_so_far_d
+                    +performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1
+                  , data=train.cv,na.action = na.omit,family = binomial (link = "probit"))
+summary(nn_1)
+```
+
+
+#what if i do 80/20? CV for glm probit
+```{r}
+set.seed(450)
+cv.accuracy <- NULL
+k <- 10
+library(plyr) 
+pbar <- create_progress_bar('text')
+pbar$init(k)
+for(i in 1:k){
+    index <- sample(1:nrow(p_2),round(0.8*nrow(p_2)))
+    train.cv <- p_2[index,]
+    test.cv <- p_2[-index,]
+    nn <- glm(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d 
+                    +cum_performance_so_far_d
+                    +performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1
+                  , data=train.cv,na.action = na.omit,family = binomial (link = "probit"))
+    #pr.nn <- compute(nn,test.cv[,1:13]) #this is where i should predict on test data using nn!
+    tab<-table(test.cv$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+    accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test.cv)
+    #pr.nn <- pr.nn$net.result*(max(data$medv)-min(data$medv))+min(data$medv)   # this i dont need. what i need is to plot tables and get classification errors!
+    #test.cv.r <- (test.cv$medv)*(max(data$medv)-min(data$medv))+min(data$medv)   
+    cv.accuracy[i] <-   accuracy  
+    pbar$step()
+}
+```
+CV accuracy for GLM probit
+```{r}
+#Cross validation accuracy!!!
+mean(cv.accuracy) #53.6%
+cv.accuracy
+boxplot(cv.accuracy,xlab='ACCURACY CV',col='cyan',
+        border='blue',names='CV ACCURACY',
+        main='CV Accuracy for Probit Model',horizontal=TRUE) #change the color!!!
+```
+
+```{r}
+#Choosing statsicially singifcant variables from above!
+set.seed(1234)
+p_model<-polr(match_outcome~performance_in_previous_3_games_d+goals_against_in_previous_1_game_d+B365H_1+B365A_1, data=train_data_p,na.action = na.omit, method = "probit") #since the difference between the AIC scores of this model and p_model_1 is greater than -2 (-19.73 in fact) this model is significantly better than the above!
+
+summary(p_model)
+
+logLik(p_model)
+#Use AIC becuase it also penalizes for complexity. Don't just use logLik alone!
+
+pR2(p_model)
+
+confint(p_model, level=.95) #this does show that "performance_in_previous_3_games_d" and "performance_in_previous_4_games_d " are not statistically significant
+
+
+```
+
+```{r}
+#getting fitted values from the model on training dataset
+x<-p_model$fitted.values
+fitted<-predict(p_model,newdata=train_data_p,type="class")
+#confusion matrix for train
+table(train_data_p$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+
+#would like to have some tresholds for draw too!! 54.2% accuracy rate for p_model !!! [would love to try this on test data] [can i predict some draws too?]
+
+fitted<-predict(p_model_1,newdata=train_data_p,type="class")
+#confusion matrix for train
+table(train_data_p$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome) 54.2% accuracy rate for p_model_1 which is more complicated. But it is on train data!
+```
+
+#Testing p_model_1 vs p_model on test data
+```{r}
+fitted<-predict(p_model,newdata=test_data_p,type="class")
+#confusion matrix for train
+table(test_data_p$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome) 334/660 = 50.6% accuracy rate!!! [can i increase this predicting some draw games too?]
+
+fitted<-predict(p_model_1,newdata=test_data_p,type="class")
+#confusion matrix for train
+table(test_data_p$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome) 337/660 = 51.1% accuracy rate!!! [can i increase this predicting some draw games too?]
+
+#one thing that i am happy about the probit model is that it is giving me better results than just predicting that home team is going to win(HT usually wins ~45% of the time) [which could be the baseline model you know and i can do sth like math modeling paper!]
+```
+#Making sure that wer predict draw as well
+```{r}
+#Get the best model from above!: p_model_1
+x_fitted_probabilites<-predict(p_model_1,newdata=train_data_p,type="probs")
+x_fitted_probabilites<-as.data.frame(x_fitted_probabilites)
+#Making predictions using treshold!
+x_fitted_probabilites<-x_fitted_probabilites %>% mutate(Predicted_outcome =ifelse(round(D,digits = 3)==0.3,"D",ifelse(H >A,"H","A")))
+table(train_data_p$match_outcome,x_fitted_probabilites$Predicted_outcome) #if rounded to 2 digits, accuracy = 52.5%, if rounded to 3 digits, accuracy = 54.3% [let's test this on test data nd Submit!]
+
+#Try this: what if A > twice greater than H then A, else H?
+```
+```{r}
+#testing the above treshodls on test data!
+x_predicted_probabilites<-predict(p_model_1,newdata=test_data_p,type="probs")
+x_predicted_probabilites<-as.data.frame(x_predicted_probabilites)
+#Making predictions using treshold!
+x_predicted_probabilites<-x_predicted_probabilites %>% mutate(Predicted_outcome =ifelse(round(D,digits = 3)==0.3,"D",ifelse(H > A,"H","A")))
+table(test_data_p$match_outcome,x_predicted_probabilites$Predicted_outcome) # when predicting draws nd testing on test data, accuracy = 50.9%
+```
+
+
+#What if i do not use the odds data?
+```{r}
+set.seed(1234)
+p_model_3<-polr(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d+cum_performance_so_far_d+performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d, data=train_data_p,na.action = na.omit, method = "probit")
+
+summary(p_model_3)
+
+pR2(p_model_3) #learn to interpret this later!
+logLik(p_model_3)
+
+fitted<-predict(p_model_3,newdata=train_data_p,type="class")
+#confusion matrix for train
+table(train_data_p$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome) 46.9% accuracy rate for p_model_3 which is poor.
+```
+
+```{r}
+set.seed(1234)
+p_model_4<-polr(match_outcome~performance_in_previous_3_games_d+performance_in_previous_4_games_d+goals_against_in_previous_1_game_d, data=train_data_p,na.action = na.omit, method = "probit")
+
+summary(p_model_4)
+
+pR2(p_model_4) #learn to interpret this later!
+logLik(p_model_4)
+
+fitted<-predict(p_model_4,newdata=train_data_p,type="class")
+#confusion matrix for train
+table(train_data_p$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome) 46.6% accuracy rate for p_model_4 which is poor. Therefore, it seems like i must include the odds data for the probit model to perform better. But, there might be problem of multicolinearity? Or create my own tresholds?
+```
+#Run ANN 2
+```{r}
+library(nnet)
+library(caret)
+library(RCurl)
+library(Metrics)
+```
+
+#Run a different ANN model
+```{r}
+#Normalizing data
+probit_run_model_data <- as.data.frame(p_2) #making sure i use per game variables here too!
+
+for (i in 4:ncol(probit_run_model_data)){
+  probit_run_model_data[,i] <- (probit_run_model_data[,i]-min(probit_run_model_data[,i]))/(max(probit_run_model_data[,i])-min(probit_run_model_data[,i]))
+}
+# First separate train and test data
+train_data_ANN_2 <- probit_run_model_data %>% filter(season_1 == "2008/2009" |season_1 == "2009/2010"|season_1 == "2010/2011"|season_1 == "2011/2012"|season_1 == "2012/2013"|season_1 == "2013/2014")
+#%>% select(-performance_in_previous_6_games,-goals_for_in_previous_6_games,-goals_against_in_previous_6_games) [MIGHT NEED THIS LATER WHEN USING LAST 6 GWS!]
+
+test_data_ANN_2 <- probit_run_model_data %>% filter(season_1 == "2014/2015" |season_1 == "2015/2016")
+#%>% select(-performance_in_previous_6_games,-goals_for_in_previous_6_games,-goals_against_in_previous_6_games)
+# Taking care of NA's
+#i need to apply per game tactics here too? Yes!
+```
+
+```{r}
+#nn = neuralnet(, data=,hidden = c(2,2,2), algorithm = "backprop",err.fct = "sse",linear.output =F,learningrate = 0.06)
+set.seed(578)
+ANN_2 <- multinom(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d+cum_performance_so_far_d+performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1, data=train_data_ANN_2, maxit=100, trace=T)
+
+
+```
+
+```{r}
+#finding most importabt varailbes from the ANN_2 model
+mostImportantVariables <- varImp(ANN_2)
+mostImportantVariables$Variables <- row.names(mostImportantVariables)
+mostImportantVariables <- mostImportantVariables[order(-mostImportantVariables$Overall),]
+print(head(mostImportantVariables))
+```
+
+```{r}
+ANN_2_preds <- predict(ANN_2, type="class", newdata=test_data_ANN_2)
+head(ANN_2_preds)
+```
+
+```{r}
+set.seed(1890)
+nn <- nnet(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d+cum_performance_so_far_d+performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1, data=train_data_ANN_2, maxit=100,size=10, trace=T)
+#summary(nn)
+```
+
+#Predicting nnet
+```{r}
+fitted<-predict(nn,newdata=train_data_ANN_2,type="class")
+#confusion matrix for train
+table(train_data_ANN_2$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome) 1181/1980 = 59.6% accuracy rate!!! [can i increase this predicting some draw games too?]
+
+fitted<-predict(nn,newdata=test_data_ANN_2,type="class")
+#confusion matrix for train
+table(test_data_ANN_2$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome) 312/660 = 47.3% accuracy rate!!! [can i increase this predicting some draw games too?]
+
+#one thing that i am happy about the probit model is that it is giving me better results than just predicting that home team is going to win(HT usually wins ~45% of the time) [which could be the baseline model you know and i can do sth like math modeling paper!]
+```
+#Cross validation for NNET ANN 2
+```{r}
+set.seed(1890)
+cv.accuracy <- NULL
+k <- 10
+#library(plyr) 
+pbar <- create_progress_bar('text')
+pbar$init(k)
+for(i in 1:k){
+    index <- sample(1:nrow(probit_run_model_data),round(0.80*nrow(probit_run_model_data)))
+    train.cv <- p_2[index,]
+    test.cv <- p_2[-index,]
+    nn <- nnet(match_outcome~
+              #Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d 
+                    #+cum_performance_so_far_d
+                    #+performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+
+                 performance_in_previous_4_games_d
+                 #+performance_in_previous_5_games_d
+               #+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d
+               #+goals_for_in_previous_3_games_d
+               +goals_for_in_previous_4_games_d+
+               #+goals_for_in_previous_5_games_d
+               #+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d
+               +goals_against_in_previous_4_games_d
+               #+goals_against_in_previous_5_games_d
+                #+ B365H_1
+               #+B365D_1+B365A_1
+               , data=train.cv,size=15, maxit=500)
+    fitted<-predict(nn, type="class", newdata=test.cv)
+    #pr.nn <- compute(nn,test.cv[,1:13]) #this is where i should predict on test data using nn!
+    tab<-table(test.cv$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+    accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test.cv)
+    #pr.nn <- pr.nn$net.result*(max(data$medv)-min(data$medv))+min(data$medv)   # this i dont need. what i need is to plot tables and get classification errors!
+    #test.cv.r <- (test.cv$medv)*(max(data$medv)-min(data$medv))+min(data$medv)   
+    cv.accuracy[i] <-   accuracy  
+    pbar$step()
+}
+```
+
+```{r}
+#Cross validation accuracy!!! for nnet ANN_2
+mean(cv.accuracy) #52.3%
+cv.accuracy
+boxplot(cv.accuracy,xlab='ACCURACY CV',col='cyan',
+        border='blue',names='CV ACCURACY',
+        main='CV Accuracy for ANN 2 Model nnet',horizontal=TRUE)
+#Writing the cv accuracy for ANN nnet to excel for Tableau
+cv.accuracy<-as.data.frame(cv.accuracy)
+#write_xlsx(cv.accuracy, 'CV_Accuracy')
+```
+```{r}
+#Getting an instance of predictive accuracy of CV for NNET ANN 2
+
+fitted<-predict(nn, type="class", newdata=test.cv)
+tab<-table(test.cv$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test.cv)
+tab
+```
+
+#Plotting graphs of variables improtance for NNET ANN 2 model
+```{r}
+library(nnet)
+library(clusterGeneration)
+#install.packages("Rcpp", dependencies = TRUE)
+#install.packages("fs")
+library(Rcpp)
+library(fs)
+library(reshape)
+library(usethis)
+require(devtools)
+
+
+#import 'gar.fun' from beckmw's Github - this is Garson's algorithm
+#source_gist("6206737")
+
+#use the function on the model created above
+#gar.fun('match_outcome',nn)
+```
+
+#another expeeiremnte plotting variables imporrtainec for ANN2 NNET
+
+```{r}
+#First, let's change the names of the variables so that they are short for visualization.
+nnet_aliases <- train.cv
+names(nnet_aliases)[names(nnet_aliases) == "match_outcome"] <- "Y1"
+names(nnet_aliases)[names(nnet_aliases) == "Goals_against_so_far_d"] <- "X2"
+names(nnet_aliases)[names(nnet_aliases) == "Goals_for_so_far_d"] <- "X3"
+names(nnet_aliases)[names(nnet_aliases) == "overall_performance_so_far_d"] <- "X4"
+names(nnet_aliases)[names(nnet_aliases) == "cum_performance_so_far_d"] <- "X5"
+names(nnet_aliases)[names(nnet_aliases) == "performance_in_previous_game_d"] <- "X6"
+names(nnet_aliases)[names(nnet_aliases) == "performance_in_previous_2_games_d"] <- "X7"
+names(nnet_aliases)[names(nnet_aliases) == "performance_in_previous_3_games_d"] <- "X8"
+names(nnet_aliases)[names(nnet_aliases) == "performance_in_previous_4_games_d"] <- "X9"
+names(nnet_aliases)[names(nnet_aliases) == "performance_in_previous_5_games_d"] <- "X10"
+names(nnet_aliases)[names(nnet_aliases) == "goals_for_in_previous_1_game_d"] <- "X11"
+names(nnet_aliases)[names(nnet_aliases) == "goals_for_in_previous_2_games_d"] <- "X12"
+names(nnet_aliases)[names(nnet_aliases) == "goals_for_in_previous_3_games_d"] <- "X13"
+names(nnet_aliases)[names(nnet_aliases) == "goals_for_in_previous_4_games_d"] <- "X14"
+names(nnet_aliases)[names(nnet_aliases) == "goals_for_in_previous_5_games_d"] <- "X15"
+names(nnet_aliases)[names(nnet_aliases) == "goals_against_in_previous_1_game_d"] <- "X16"
+names(nnet_aliases)[names(nnet_aliases) == "goals_against_in_previous_2_games_d"] <- "X17"
+names(nnet_aliases)[names(nnet_aliases) == "goals_against_in_previous_3_games_d"] <- "X18"
+names(nnet_aliases)[names(nnet_aliases) == "goals_against_in_previous_4_games_d"] <- "X19"
+names(nnet_aliases)[names(nnet_aliases) == "goals_against_in_previous_5_games_d"] <- "X20"
+names(nnet_aliases)[names(nnet_aliases) == "B365H_1"] <- "X21"
+names(nnet_aliases)[names(nnet_aliases) == "B365A_1"] <- "X22"
+names(nnet_aliases)[names(nnet_aliases) == "B365D_1"] <- "X23"
+```
+
+```{r}
+#library(devtools)
+#install_github('fawda123/NeuralNetTools')
+ 
+#library(nnet)
+library(NeuralNetTools)
+ 
+## color input nodes by relative importance
+mod <- nnet(Y1~#X2+
+              #X3+X4+X5+X6+X7+X8+
+              X9
+              #+X10
+            #+X11+X12+X13
+            +X14
+            #+X15+X16+X17+X18
+            +X19
+              #+X20
+            +
+              X21
+            #+X22+X23
+            , data=nnet_aliases,size=15, maxit=500)
+  
+
+ # rel_imp <- olden(mod, bar_plot = FALSE)$rel_imp
+ # cols <- colorRampPalette(c('lightgreen', 'darkgreen'))(3)[rank(rel_imp)]
+   
+ plotnet(mod, circle_col = list(cols, 'lightgreen'))
+ olden(mod)
+```
+
+```{r}
+#Accuracy
+#library(caret)
+#install.packages('e1071', dependencies=TRUE)
+postResample(test_data_ANN_2$match_outcome,ANN_2_preds)
+table(test_data_ANN_2$match_outcome,ANN_2_preds) #predicts draw so would prefer this over probit model!
+```
+#Using cross validation for ANN_2
+
+```{r}
+set.seed(1890)
+cv.accuracy <- NULL
+k <- 10
+#library(plyr) 
+pbar <- create_progress_bar('text')
+pbar$init(k)
+for(i in 1:k){
+    index <- sample(1:nrow(probit_run_model_data),round(0.80*nrow(probit_run_model_data)))
+    train.cv <- p_2[index,]
+    test.cv <- p_2[-index,]
+    nn <- multinom(match_outcome~Goals_against_so_far_d+Goals_for_so_far_d+overall_performance_so_far_d+cum_performance_so_far_d+performance_in_previous_game_d+performance_in_previous_2_games_d+performance_in_previous_3_games_d+performance_in_previous_4_games_d+performance_in_previous_5_games_d+goals_for_in_previous_1_game_d+goals_for_in_previous_2_games_d+goals_for_in_previous_3_games_d+goals_for_in_previous_4_games_d+goals_for_in_previous_5_games_d+goals_against_in_previous_1_game_d+goals_against_in_previous_2_games_d+goals_against_in_previous_3_games_d+goals_against_in_previous_4_games_d+goals_against_in_previous_5_games_d+B365H_1+B365D_1+B365A_1, data=train.cv, maxit=100)
+    fitted<-predict(nn, type="class", newdata=test.cv)
+    #pr.nn <- compute(nn,test.cv[,1:13]) #this is where i should predict on test data using nn!
+    tab<-table(test.cv$match_outcome,fitted) # table(Actual_outcome_1,Predicted_outcome)
+    accuracy<- (tab[1,1] + tab[2,2]+tab[3,3])/NROW(test.cv)
+    #pr.nn <- pr.nn$net.result*(max(data$medv)-min(data$medv))+min(data$medv)   # this i dont need. what i need is to plot tables and get classification errors!
+    #test.cv.r <- (test.cv$medv)*(max(data$medv)-min(data$medv))+min(data$medv)   
+    cv.accuracy[i] <-   accuracy  
+    pbar$step()
+}
+```
+
+```{r}
+#Cross validation accuracy!!!
+mean(cv.accuracy) #52.3%
+cv.accuracy
+boxplot(cv.accuracy,xlab='ACCURACY CV',col='cyan',
+        border='blue',names='CV ACCURACY',
+        main='CV Accuracy for ANN 2 Model multinom',horizontal=TRUE)
+```
+
+#Write the excel file to Tableau
+
+```{r}
+#write_xlsx(p_2, 'cleaned_data_for_EDA')
+```
+

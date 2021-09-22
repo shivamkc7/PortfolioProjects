@@ -1,0 +1,779 @@
+---
+title: "Data_for_IS"
+author: "Shivam K C"
+date: "1/19/2021"
+output: html_document
+---
+```{r}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(car)
+library(lme4)
+library(lmerTest)
+library(matlab)
+library(gtools)
+library(stringr)
+library(purrr)
+library(data.table)
+library(writexl)
+library(openxlsx)
+library(neuralnet)
+library(tidyr)
+library(data.table)
+```
+
+```{r}
+library("RSQLite")
+
+## connect to db
+con <- dbConnect(drv=RSQLite::SQLite(), dbname="database.sqlite")
+
+## list all tables
+tables <- dbListTables(con)
+
+## exclude sqlite_sequence (contains table information)
+tables <- tables[tables != "sqlite_sequence"]
+
+lDataFrames <- vector("list", length=length(tables))
+
+## create a data.frame for each table
+for (i in seq(along=tables)) {
+  lDataFrames[[i]] <- dbGetQuery(conn=con, statement=paste("SELECT * FROM '", tables[[i]], "'", sep=""))
+  #lDataFrames <- map(tables, ~{
+  #dbGetQuery(conn=con, statement=paste("SELECT * FROM '", .x, "'", sep=""))
+#})
+}
+```
+
+```{r}
+lDataFrames[[3]]
+```
+#Getting Premier League Data for seasons 2008/2009 to 2015/2016
+```{r}
+premier_league <- lDataFrames[[3]] %>% filter(league_id == 1729)
+```
+
+#NArrowind down to 2009/2010 season
+```{r}
+premier_league_09_010 <- premier_league %>% filter(season == "2009/2010")
+```
+
+#Creating Goals_for varaible
+```{r}
+#First dividing in different stages
+
+p_1 <- premier_league_09_010 %>% filter(stage == 1) # not predict the first gw of the season?
+p_2 <- premier_league_09_010 %>% filter(stage == 2)
+
+#p_2<- p_2 %>% mutate(home_team_goals_so_far = ifelse(home_team_api_id == p_1$home_team_api_id,p_1$home_team_goal,ifelse(home_team_api_id==p_1$away_team_api_id,p_1$away_team_goal, "NA")))
+
+```
+
+#Creating Goals_for variable [different approach]
+
+```{r}
+p_8650 <- premier_league_09_010 %>% filter(home_team_api_id == 	8650 | away_team_api_id == 	8650)
+
+p_8650 <- p_8650 %>% mutate(TeamID = 8650)
+p_8650 <- p_8650 %>% select(id, season, TeamID, stage, home_team_api_id,away_team_api_id, home_team_goal,away_team_goal,B365H,B365D,B365A)
+
+p_8650 <- p_8650 %>% mutate(Goals_for = ifelse(TeamID==home_team_api_id,home_team_goal,away_team_goal))
+
+p_8650 <- p_8650 %>% mutate(Goals_against = ifelse(TeamID==home_team_api_id,away_team_goal,home_team_goal))
+
+#sorting by stage
+p_8650 <- p_8650[order(p_8650$stage),]
+#adding Goals_for_so_far
+
+p_8650$Goals_for_so_far <- Reduce(function(u, v)  u + v , p_8650$Goals_for, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(Goals_for_so_far=lag(Goals_for_so_far)) #shifting the column down by one
+```
+
+#Creating Goals_against_so_far_in_season variable 
+```{r}
+#adding Goals_against_so_far
+
+p_8650$Goals_against_so_far <- Reduce(function(u, v)  u + v , p_8650$Goals_against, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(Goals_against_so_far=lag(Goals_against_so_far)) #shifting the column down by one
+```
+
+#Creating overall_performance_so_far
+
+```{r}
+p_8650 <- p_8650 %>% mutate(scoreline_difference_h_a = home_team_goal - away_team_goal)
+p_8650 <- p_8650 %>% mutate(record = ifelse(TeamID==home_team_api_id & scoreline_difference_h_a > 0, "W",ifelse(TeamID==home_team_api_id & scoreline_difference_h_a < 0, "L",ifelse(TeamID==home_team_api_id & scoreline_difference_h_a ==0, "D",ifelse(TeamID==away_team_api_id & scoreline_difference_h_a > 0, "L",ifelse(TeamID==away_team_api_id & scoreline_difference_h_a < 0,"W","D")))))) #win loss draw
+
+#points distribution
+
+p_8650 <- p_8650 %>% mutate(point = ifelse(record=="W",3,ifelse(record=="L",0,1)))
+
+#Gotta do recursive accumulation for the overall performacne so far
+
+p_8650$overall_performance_so_far <- Reduce(function(u, v)  u + v , p_8650$point, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(overall_performance_so_far=lag(overall_performance_so_far)) #shifting the column down by one
+```
+
+#Creating cumulative home performance and away performance
+
+```{r}
+p_8650 <- p_8650 %>% mutate(home_performance_point = ifelse(TeamID==home_team_api_id,point,0) )
+
+#Gotta do recursive accumulation for cumulative home performance so far
+
+p_8650$cum_home_performance_so_far <- Reduce(function(u, v)  u + v , p_8650$home_performance_point, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(cum_home_performance_so_far=lag(cum_home_performance_so_far)) #shifting the column down by one
+
+
+p_8650 <- p_8650 %>% mutate(away_performance_point = ifelse(TeamID==away_team_api_id,point,0) )
+
+#Gotta do recursive accumulation for cumulative home performance so far
+
+p_8650$cum_away_performance_so_far <- Reduce(function(u, v)  u + v , p_8650$away_performance_point, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(cum_away_performance_so_far=lag(cum_away_performance_so_far)) #shifting the column down by one
+```
+
+#Creating performance in previous game
+
+```{r}
+p_8650<-p_8650 %>% mutate(performance_in_previous_game=lag(point))
+```
+
+#Creating Location variable
+
+```{r}
+p_8650<-p_8650 %>% mutate(location= ifelse(TeamID==home_team_api_id,1,0))
+```
+
+#Creating average performance in previous n games
+
+```{r}
+#p_8650<-p_8650 %>% mutate(performance_in_previous_2_games= ifelse(TeamID==home_team_api_id,1,0))
+
+#DT[ , D := C + shift(B, 1L, type="lag")]
+p_8650<-as.data.table(p_8650)
+p_8650$performance_in_previous_2_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag"))/2  #performance_in_previous_2_games
+
+#performance_in_previous_3_games
+p_8650$performance_in_previous_3_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag")+shift(p_8650$point, 3, type="lag"))/3  
+
+#performance_in_previous_4_games
+p_8650$performance_in_previous_4_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag")+shift(p_8650$point, 3, type="lag")+shift(p_8650$point, 4, type="lag"))/4  
+
+#performance_in_previous_5_games
+p_8650$performance_in_previous_5_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag")+shift(p_8650$point, 3, type="lag")+shift(p_8650$point, 4, type="lag")+shift(p_8650$point, 5, type="lag"))/5  
+
+#performance_in_previous_6_games
+p_8650$performance_in_previous_6_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag")+shift(p_8650$point, 3, type="lag")+shift(p_8650$point, 4, type="lag")+shift(p_8650$point, 5, type="lag")+shift(p_8650$point, 6, type="lag"))/6  
+```
+
+#Creating goals-for in previous n games
+
+```{r}
+#goals_for_in_previous_1_game
+p_8650$goals_for_in_previous_1_game<- shift(p_8650$Goals_for, 1, type="lag")
+
+#goals_for_in_previous_2_games
+p_8650$goals_for_in_previous_2_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag"))/2
+
+#goals_for_in_previous_3_games
+p_8650$goals_for_in_previous_3_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag")+shift(p_8650$Goals_for, 3, type="lag"))/3
+
+#goals_for_in_previous_4_games
+p_8650$goals_for_in_previous_4_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag")+shift(p_8650$Goals_for, 3, type="lag")+shift(p_8650$Goals_for, 4, type="lag"))/4
+
+#goals_for_in_previous_5_games
+p_8650$goals_for_in_previous_5_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag")+shift(p_8650$Goals_for, 3, type="lag")+shift(p_8650$Goals_for, 4, type="lag")+shift(p_8650$Goals_for, 5, type="lag"))/5
+
+#goals_for_in_previous_6_games
+p_8650$goals_for_in_previous_6_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag")+shift(p_8650$Goals_for, 3, type="lag")+shift(p_8650$Goals_for, 4, type="lag")+shift(p_8650$Goals_for, 5, type="lag")+shift(p_8650$Goals_for, 6, type="lag"))/6
+```
+
+#Creating goals-against in previous n games
+
+```{r}
+#goals_against_in_previous_1_game
+p_8650$goals_against_in_previous_1_game<- shift(p_8650$Goals_against, 1, type="lag")
+
+#goals_against_in_previous_2_games
+p_8650$goals_against_in_previous_2_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag"))/2
+
+#goals_against_in_previous_3_games
+p_8650$goals_against_in_previous_3_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag")+shift(p_8650$Goals_against, 3, type="lag"))/3
+
+#goals_against_in_previous_4_games
+p_8650$goals_against_in_previous_4_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag")+shift(p_8650$Goals_against, 3, type="lag")+shift(p_8650$Goals_against, 4, type="lag"))/4
+
+#goals_against_in_previous_5_games
+p_8650$goals_against_in_previous_5_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag")+shift(p_8650$Goals_against, 3, type="lag")+shift(p_8650$Goals_against, 4, type="lag")+shift(p_8650$Goals_against, 5, type="lag"))/5
+
+#goals_against_in_previous_6_games
+p_8650$goals_against_in_previous_6_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag")+shift(p_8650$Goals_against, 3, type="lag")+shift(p_8650$Goals_against, 4, type="lag")+shift(p_8650$Goals_against, 5, type="lag")+shift(p_8650$Goals_against, 6, type="lag"))/6
+```
+
+#Writing the file to excel
+
+```{r}
+
+p_8650 <-as.data.frame(p_8650)
+write_xlsx(p_8650, 'premier_league_2009_10_p_8650')
+```
+
+#Cleaning data for 20 teams for 2009/2010 season
+
+```{r}
+#Let's use for loop
+
+y <- unique(premier_league$season)
+combineddataset <-data.table() #creating empty data.table () to later append!!!
+for (j in y){
+  premier_league_09_010 <- premier_league %>% filter(season == j) #NArrowind down to particular season
+  x <-  unique(premier_league_09_010$home_team_api_id)
+for (i in x){
+#First let's try a different team 10260
+
+#Creating Goals_for variable [different approach]
+
+p_8650 <- premier_league_09_010 %>% filter(home_team_api_id == 	i | away_team_api_id == 	i)
+
+p_8650 <- p_8650 %>% mutate(TeamID = i)
+p_8650 <- p_8650 %>% select(id, season, TeamID, stage, home_team_api_id,away_team_api_id, home_team_goal,away_team_goal,B365H,B365D,B365A)
+
+p_8650 <- p_8650 %>% mutate(Goals_for = ifelse(TeamID==home_team_api_id,home_team_goal,away_team_goal))
+
+p_8650 <- p_8650 %>% mutate(Goals_against = ifelse(TeamID==home_team_api_id,away_team_goal,home_team_goal))
+
+#sorting by stage
+p_8650 <- p_8650[order(p_8650$stage),]
+#adding Goals_for_so_far
+
+p_8650$Goals_for_so_far <- Reduce(function(u, v)  u + v , p_8650$Goals_for, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(Goals_for_so_far=lag(Goals_for_so_far)) #shifting the column down by one
+
+
+#Creating Goals_against_so_far_in_season variable 
+
+#adding Goals_against_so_far
+
+p_8650$Goals_against_so_far <- Reduce(function(u, v)  u + v , p_8650$Goals_against, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(Goals_against_so_far=lag(Goals_against_so_far)) #shifting the column down by one
+
+
+#Creating overall_performance_so_far
+
+
+p_8650 <- p_8650 %>% mutate(scoreline_difference_h_a = home_team_goal - away_team_goal)
+p_8650 <- p_8650 %>% mutate(record = ifelse(TeamID==home_team_api_id & scoreline_difference_h_a > 0, "W",ifelse(TeamID==home_team_api_id & scoreline_difference_h_a < 0, "L",ifelse(TeamID==home_team_api_id & scoreline_difference_h_a ==0, "D",ifelse(TeamID==away_team_api_id & scoreline_difference_h_a > 0, "L",ifelse(TeamID==away_team_api_id & scoreline_difference_h_a < 0,"W","D")))))) #win loss draw
+
+#points distribution
+
+p_8650 <- p_8650 %>% mutate(point = ifelse(record=="W",3,ifelse(record=="L",0,1)))
+
+#Gotta do recursive accumulation for the overall performacne so far
+
+p_8650$overall_performance_so_far <- Reduce(function(u, v)  u + v , p_8650$point, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(overall_performance_so_far=lag(overall_performance_so_far)) #shifting the column down by one
+
+
+#Creating cumulative home performance and away performance
+
+
+p_8650 <- p_8650 %>% mutate(home_performance_point = ifelse(TeamID==home_team_api_id,point,0) )
+
+#Gotta do recursive accumulation for cumulative home performance so far
+
+p_8650$cum_home_performance_so_far <- Reduce(function(u, v)  u + v , p_8650$home_performance_point, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(cum_home_performance_so_far=lag(cum_home_performance_so_far)) #shifting the column down by one
+
+
+p_8650 <- p_8650 %>% mutate(away_performance_point = ifelse(TeamID==away_team_api_id,point,0) )
+
+#Gotta do recursive accumulation for cumulative home performance so far
+
+p_8650$cum_away_performance_so_far <- Reduce(function(u, v)  u + v , p_8650$away_performance_point, init = 0, accumulate = TRUE)[-1]
+
+
+p_8650<-p_8650 %>% mutate(cum_away_performance_so_far=lag(cum_away_performance_so_far)) #shifting the column down by one
+
+
+#Creating performance in previous game
+
+
+p_8650<-p_8650 %>% mutate(performance_in_previous_game=lag(point))
+
+
+#Creating Location variable
+
+
+p_8650<-p_8650 %>% mutate(location= ifelse(TeamID==home_team_api_id,1,0))
+
+
+#Creating average performance in previous n games
+
+
+
+
+#DT[ , D := C + shift(B, 1L, type="lag")]
+p_8650<-as.data.table(p_8650)
+p_8650$performance_in_previous_2_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag"))/2  #performance_in_previous_2_games
+
+#performance_in_previous_3_games
+p_8650$performance_in_previous_3_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag")+shift(p_8650$point, 3, type="lag"))/3  
+
+#performance_in_previous_4_games
+p_8650$performance_in_previous_4_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag")+shift(p_8650$point, 3, type="lag")+shift(p_8650$point, 4, type="lag"))/4  
+
+#performance_in_previous_5_games
+p_8650$performance_in_previous_5_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag")+shift(p_8650$point, 3, type="lag")+shift(p_8650$point, 4, type="lag")+shift(p_8650$point, 5, type="lag"))/5  
+
+#performance_in_previous_6_games
+p_8650$performance_in_previous_6_games<- (shift(p_8650$point, 1, type="lag") + shift(p_8650$point, 2, type="lag")+shift(p_8650$point, 3, type="lag")+shift(p_8650$point, 4, type="lag")+shift(p_8650$point, 5, type="lag")+shift(p_8650$point, 6, type="lag"))/6  
+
+
+#Creating goals-for in previous n games
+
+
+#goals_for_in_previous_1_game
+p_8650$goals_for_in_previous_1_game<- shift(p_8650$Goals_for, 1, type="lag")
+
+#goals_for_in_previous_2_games
+p_8650$goals_for_in_previous_2_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag"))/2
+
+#goals_for_in_previous_3_games
+p_8650$goals_for_in_previous_3_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag")+shift(p_8650$Goals_for, 3, type="lag"))/3
+
+#goals_for_in_previous_4_games
+p_8650$goals_for_in_previous_4_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag")+shift(p_8650$Goals_for, 3, type="lag")+shift(p_8650$Goals_for, 4, type="lag"))/4
+
+#goals_for_in_previous_5_games
+p_8650$goals_for_in_previous_5_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag")+shift(p_8650$Goals_for, 3, type="lag")+shift(p_8650$Goals_for, 4, type="lag")+shift(p_8650$Goals_for, 5, type="lag"))/5
+
+#goals_for_in_previous_6_games
+p_8650$goals_for_in_previous_6_games<- (shift(p_8650$Goals_for, 1, type="lag")+shift(p_8650$Goals_for, 2, type="lag")+shift(p_8650$Goals_for, 3, type="lag")+shift(p_8650$Goals_for, 4, type="lag")+shift(p_8650$Goals_for, 5, type="lag")+shift(p_8650$Goals_for, 6, type="lag"))/6
+
+#Creating goals-against in previous n games
+
+#goals_against_in_previous_1_game
+p_8650$goals_against_in_previous_1_game<- shift(p_8650$Goals_against, 1, type="lag")
+
+#goals_against_in_previous_2_games
+p_8650$goals_against_in_previous_2_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag"))/2
+
+#goals_against_in_previous_3_games
+p_8650$goals_against_in_previous_3_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag")+shift(p_8650$Goals_against, 3, type="lag"))/3
+
+#goals_against_in_previous_4_games
+p_8650$goals_against_in_previous_4_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag")+shift(p_8650$Goals_against, 3, type="lag")+shift(p_8650$Goals_against, 4, type="lag"))/4
+
+#goals_against_in_previous_5_games
+p_8650$goals_against_in_previous_5_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag")+shift(p_8650$Goals_against, 3, type="lag")+shift(p_8650$Goals_against, 4, type="lag")+shift(p_8650$Goals_against, 5, type="lag"))/5
+
+#goals_against_in_previous_6_games
+p_8650$goals_against_in_previous_6_games<- (shift(p_8650$Goals_against, 1, type="lag")+shift(p_8650$Goals_against, 2, type="lag")+shift(p_8650$Goals_against, 3, type="lag")+shift(p_8650$Goals_against, 4, type="lag")+shift(p_8650$Goals_against, 5, type="lag")+shift(p_8650$Goals_against, 6, type="lag"))/6
+
+#append the files here:
+
+combineddataset = rbind(combineddataset,p_8650)
+}
+#Writing the file to excel
+combineddataset <-as.data.frame(combineddataset)
+write_xlsx(combineddataset, 'premier_league_8_seasons_cleaned')
+}
+```
+
+
+#Running ANN
+
+```{r}
+#Get the data and as factor W,L,D in an ordered fashion
+
+cd <- combineddataset #let cd be a normalized dataset!
+#cd$outcome <- factor(cd$record, ordered = TRUE, levels=c("L","D","W")) (i)
+cd <- cd %>% mutate(outcome = ifelse(record=="W",1,ifelse(record=="L",0,ifelse(record=="D",0.5,"NA")))) #I wonder (i) is better than this for ANN output unit?
+
+# before normalizign , take care of NAs and categorical variables
+cd <- cd %>% select(-performance_in_previous_6_games,-goals_for_in_previous_6_games,-goals_against_in_previous_6_games) #change here if you want to include last 6 games performance
+
+cd <- cd %>% select(-record)
+
+cd<-na.omit(cd)
+
+#Normalizing data before speparation of trai nand test and doing  ANN
+
+cd$outcome <- as.numeric(cd$outcome) # this mkaes difference in output unit of ANN
+for (i in 8: (ncol(cd))-1){ #careful with this line of code
+  cd[,i] <- (cd[,i]-min(cd[,i]))/(max(cd[,i])-min(cd[,i]))
+}
+
+```
+
+
+
+```{r}
+# First separate train and test data
+train_data <- cd %>% filter(season == "2008/2009" 
+                            |season == "2009/2010"|season == "2010/2011"|season == "2011/2012"|season == "2012/2013"|season == "2013/2014"
+                            )
+#%>% select(-performance_in_previous_6_games,-goals_for_in_previous_6_games,-goals_against_in_previous_6_games) [MIGHT NEED THIS LATER WHEN USING LAST 6 GWS!]
+
+test_data <- cd %>% filter(season == "2014/2015" |season == "2015/2016")
+#%>% select(-performance_in_previous_6_games,-goals_for_in_previous_6_games,-goals_against_in_previous_6_games)
+# Taking care of NA's
+
+#Removing NA's from train and test data initially;
+train_data<-na.omit(train_data) #only do na.omit for until first 5 gws initially!
+test_data<-na.omit(test_data)
+```
+
+#Let's experiment with reshuffling and then dividing the train and test data
+```{r}
+#set.seed(1234)
+#train_data<-train_data[sample(nrow(train_data)),] #didn't work!
+```
+
+#Be careful when rerunning the following ANN code; it will change as weights change!
+
+```{r}
+# Using neuralnet on train data, get the confidence levels for each teams in a match
+# probably want to set.seed(1234)?
+set.seed(1236)
+#nn = neuralnet(outcome~
+                 #Goals_for_so_far+Goals_against_so_far+
+                 #cum_home_performance_so_far+cum_away_performance_so_far
+               #+performance_in_previous_game+performance_in_previous_2_games+
+                # performance_in_previous_3_games
+               #+performance_in_previous_4_games
+               #+performance_in_previous_5_games+goals_for_in_previous_2_games+goals_for_in_previous_1_game+goals_for_in_previous_3_games+goals_for_in_previous_4_games+goals_for_in_previous_5_games+location+goals_against_in_previous_1_game+goals_against_in_previous_2_games+goals_against_in_previous_3_games+goals_against_in_previous_4_games+goals_against_in_previous_5_games
+            #   , data=train_data,hidden = c(1), algorithm = "backprop",err.fct = "sse",linear.output =FALSE,learningrate = 0.05) #change to 0.03 and 10,10,10 #graphs of different leraning rates vs steps / errors; graphs of different thresholds are good idea for more research!
+#Later, check what happens when the following is done:
+  #likelihood = true OR
+  #when 6 gws are taken into account
+  #different act.fct is used
+  #different err.fct is used
+  #different learning rate is used
+#21 variables
+```
+
+#Let's experiment with different nnet package
+```{r}
+set.seed(1235)
+library(nnet)
+nnet_mod <- nnet(outcome~
+                 Goals_for_so_far+Goals_against_so_far+
+                 cum_home_performance_so_far+cum_away_performance_so_far
+               +performance_in_previous_game+performance_in_previous_2_games+
+                 performance_in_previous_3_games
+               +performance_in_previous_4_games
+               +performance_in_previous_5_games+goals_for_in_previous_2_games+goals_for_in_previous_1_game+goals_for_in_previous_3_games+goals_for_in_previous_4_games+goals_for_in_previous_5_games+location+goals_against_in_previous_1_game+goals_against_in_previous_2_games+goals_against_in_previous_3_games+goals_against_in_previous_4_games+goals_against_in_previous_5_games,
+               data=train_data, size = 10,  maxit=10, trace=T)
+```
+#Let's see the putut of nnet model!
+```{r}
+v<-nnet_mod$fitted.values
+#View(v)
+```
+#Let's predict using ANN1
+```{r}
+#changing name of the output from nnet to confidence_score_of a team!
+confidence_score<-v
+#combining nnoutput_scaled to the train dataset 
+nnet_train_combined <- cbind(train_data,confidence_score)
+
+#Just checking
+#covariate<-nn$covariate
+```
+#Calculating Home team confidence score - ATCS for each game Then making predictions using different thresholds!
+```{r}
+
+# Befoew pivoting, let's get Actual outcome in the form of H/A/D
+
+nnet_train_combined <- nnet_train_combined %>% mutate(Actual_outcome = ifelse(outcome==0.5,"D",ifelse((outcome==1 & TeamID==home_team_api_id)|(outcome==0 & TeamID == away_team_api_id),"H","A")))
+
+
+```
+#Pivoting for nnet train dataset
+```{r}
+#Pivot the dataset [might have to do it for test dataset later on] such that you have only one row for each game: Also, you have a column of either Home Win/ Away Win/ Draw [Actual Outcome]
+
+# Pivot dataset? so that each match id have only one row? it will be 1980 training matches
+
+
+
+pivot_nnet_train_combined <-dcast(setDT(nnet_train_combined), id~rowid(id), value.var=c("TeamID", "home_team_api_id","away_team_api_id","confidence_score","Actual_outcome"))
+
+
+#Gettig home confidence score and ACS:
+pivot_nnet_train_combined <- pivot_nnet_train_combined %>% mutate(HCS = ifelse(home_team_api_id_1==TeamID_1,confidence_score_1,ifelse(home_team_api_id_1==TeamID_2,confidence_score_2,"NA")))
+
+pivot_nnet_train_combined$HCS <- as.numeric(pivot_nnet_train_combined$HCS)
+
+pivot_nnet_train_combined <- pivot_nnet_train_combined %>% mutate(ACS = ifelse(away_team_api_id_1==TeamID_1,confidence_score_1,ifelse(away_team_api_id_1==TeamID_2,confidence_score_2,"NA"))) 
+
+pivot_nnet_train_combined$ACS <- as.numeric(pivot_nnet_train_combined$ACS)
+
+#Calculate HT_CL - AwayTeam_ConfidenceLevel
+
+pivot_nnet_train_combined <- pivot_nnet_train_combined %>% mutate(difference_in_CS_H = HCS - ACS)
+
+#Add the HTCL - ATCL score such that you can create column of Predicted_Outcome
+
+#then create confusion matrix using Predicted_Outcome vs Actual Outcome
+```
+# NNET predictions for train data for ANN1
+```{r}
+#creating thresholds for predicted Home winning/A/D
+
+pivot_nnet_train_combined <- pivot_nnet_train_combined %>% mutate(Predicted_outcome = ifelse(abs(difference_in_CS_H) == 0,"D",ifelse(difference_in_CS_H>0,"H",ifelse(difference_in_CS_H<0,"A","NA"))))
+```
+
+```{r}
+#With the above threshold, get confusion matrix:
+attach(pivot_nnet_train_combined)
+table(Actual_outcome_1,Predicted_outcome)
+
+#if thresholds are: 0 for D, >0 for H, and < 0 for A, then accuracy = 58.6 % [I WONDER HOW MUCH PROFIT WOULD I MAKE FROM THIS SUCCESS RATE, PREDICTING MOSTLY AWAY WINS!]
+```
+#Let's predict nnet (ANN1) on test data
+
+```{r}
+
+nnet_p <- predict(object = nnet_mod,newdata= test_data,type="raw") #why?
+```
+# I need to pivot the test data as well
+```{r}
+#changing name of the output from nnet to confidence_score_of a team!
+confidence_score<-nnet_p
+#combining nnoutput_scaled to the train dataset 
+nnet_test_combined <- cbind(test_data,confidence_score)
+
+#Just checking
+#covariate<-nn$covariate
+```
+#Calculating Home team confidence score - ATCS for each game Then making predictions using different thresholds!
+```{r}
+
+# Befoew pivoting, let's get Actual outcome in the form of H/A/D
+
+nnet_test_combined <- nnet_test_combined %>% mutate(Actual_outcome = ifelse(outcome==0.5,"D",ifelse((outcome==1 & TeamID==home_team_api_id)|(outcome==0 & TeamID == away_team_api_id),"H","A")))
+
+
+```
+#Pivoting for nnet train dataset
+```{r}
+#Pivot the dataset [might have to do it for test dataset later on] such that you have only one row for each game: Also, you have a column of either Home Win/ Away Win/ Draw [Actual Outcome]
+
+# Pivot dataset? so that each match id have only one row? it will be 1980 training matches
+
+
+
+pivot_nnet_test_combined <-dcast(setDT(nnet_test_combined), id~rowid(id), value.var=c("TeamID", "home_team_api_id","away_team_api_id","confidence_score","Actual_outcome"))
+
+
+#Gettig home confidence score and ACS:
+pivot_nnet_test_combined <- pivot_nnet_test_combined %>% mutate(HCS = ifelse(home_team_api_id_1==TeamID_1,confidence_score_1,ifelse(home_team_api_id_1==TeamID_2,confidence_score_2,"NA")))
+
+pivot_nnet_test_combined$HCS <- as.numeric(pivot_nnet_test_combined$HCS)
+
+pivot_nnet_test_combined <- pivot_nnet_test_combined %>% mutate(ACS = ifelse(away_team_api_id_1==TeamID_1,confidence_score_1,ifelse(away_team_api_id_1==TeamID_2,confidence_score_2,"NA"))) 
+
+pivot_nnet_test_combined$ACS <- as.numeric(pivot_nnet_test_combined$ACS)
+
+#Calculate HT_CL - AwayTeam_ConfidenceLevel
+
+pivot_nnet_test_combined <- pivot_nnet_test_combined %>% mutate(difference_in_CS_H = HCS - ACS)
+
+#Add the HTCL - ATCL score such that you can create column of Predicted_Outcome
+
+#then create confusion matrix using Predicted_Outcome vs Actual Outcome
+```
+# NNET predictions for test data for ANN1
+```{r}
+#creating thresholds for predicted Home winning/A/D
+
+pivot_nnet_test_combined <- pivot_nnet_test_combined %>% mutate(Predicted_outcome = ifelse(abs(difference_in_CS_H) == 0,"D",ifelse(difference_in_CS_H>0,"H",ifelse(difference_in_CS_H<0,"A","NA"))))
+```
+
+```{r}
+#With the above threshold, get confusion matrix:
+attach(pivot_nnet_test_combined)
+table(Actual_outcome_1,Predicted_outcome)
+
+#if thresholds are: 0 for D, >0 for H, and < 0 for A, then accuracy = 44.2 % [I WONDER HOW MUCH PROFIT WOULD I MAKE FROM THIS SUCCESS RATE, PREDICTING MOSTLY AWAY WINS!]
+
+#since the predictive accuracy for test data is low, probably problem of overfitting! Shall I do treshold? and then do crossvalidation?
+
+# it seems like if i decreased iteration in train, the PA for train decreases but for test, it increases
+```
+#This is neural net's stuffs
+```{r}
+# checking nn from neural net
+#nn
+#plot(nn)
+#a<-nn$net.result[[1]]
+#View(a)
+#garson(nn)
+
+```
+
+```{r}
+#result_nn_matrix <- nn$result.matrix #to summarize results from the model
+```
+
+```{r}
+#Getting the predicted values from 
+#a<-nn$net.result[[1]]
+
+#Scaling the output values from neural network between 0 and 1!
+#nn_output_scaled <- a
+#nn_output_scaled[,1] <- (nn_output_scaled[,1]-min(nn_output_scaled[,1]))/(max(nn_output_scaled[,1])-min(nn_output_scaled[,1])) #normalized between 0 and 1!
+
+#actual_output <- train_data$outcome
+```
+
+```{r}
+#changing name of the output from NN to confidence_score_of a team!
+confidence_score<-nn_output_scaled
+#combining nnoutput_scaled to the train dataset 
+nn_train_combined <- cbind(train_data,confidence_score)
+
+#Just checking
+#covariate<-nn$covariate
+```
+
+#Calculating Home team confidence score - ATCS for each game Then making predictions using different thresholds!
+```{r}
+
+# Befoew pivoting, let's get Actual outcome in the form of H/A/D
+
+nn_train_combined <- nn_train_combined %>% mutate(Actual_outcome = ifelse(outcome==0.5,"D",ifelse((outcome==1 & TeamID==home_team_api_id)|(outcome==0 & TeamID == away_team_api_id),"H","A")))
+
+
+```
+
+```{r}
+#Pivot the dataset [might have to do it for test dataset later on] such that you have only one row for each game: Also, you have a column of either Home Win/ Away Win/ Draw [Actual Outcome]
+
+# Pivot dataset? so that each match id have only one row? it will be 1980 training matches
+
+
+
+pivot_nn_train_combined <-dcast(setDT(nn_train_combined), id~rowid(id), value.var=c("TeamID", "home_team_api_id","away_team_api_id","confidence_score","Actual_outcome"))
+
+
+#Gettig home confidence score and ACS:
+pivot_nn_train_combined <- pivot_nn_train_combined %>% mutate(HCS = ifelse(home_team_api_id_1==TeamID_1,confidence_score_1,ifelse(home_team_api_id_1==TeamID_2,confidence_score_2,"NA")))
+
+pivot_nn_train_combined$HCS <- as.numeric(pivot_nn_train_combined$HCS)
+
+pivot_nn_train_combined <- pivot_nn_train_combined %>% mutate(ACS = ifelse(away_team_api_id_1==TeamID_1,confidence_score_1,ifelse(away_team_api_id_1==TeamID_2,confidence_score_2,"NA"))) 
+
+pivot_nn_train_combined$ACS <- as.numeric(pivot_nn_train_combined$ACS)
+
+#Calculate HT_CL - AwayTeam_ConfidenceLevel
+
+pivot_nn_train_combined <- pivot_nn_train_combined %>% mutate(difference_in_CS_H = HCS - ACS)
+
+#Add the HTCL - ATCL score such that you can create column of Predicted_Outcome
+
+#then create confusion matrix using Predicted_Outcome vs Actual Outcome
+```
+
+```{r}
+#creating thresholds for predicted Home winning/A/D
+
+pivot_nn_train_combined <- pivot_nn_train_combined %>% mutate(Predicted_outcome = ifelse(abs(difference_in_CS_H) == 0,"D",ifelse(difference_in_CS_H>0,"H",ifelse(difference_in_CS_H<0,"A","NA"))))
+```
+
+```{r}
+#With the above threshold, get confusion matrix:
+attach(pivot_nn_train_combined)
+table(Actual_outcome_1,Predicted_outcome)
+
+#if thresholds are: 0 for D, >0 for H, and < 0 for A, then accuracy = 34.7 % [I WONDER HOW MUCH PROFIT WOULD I MAKE FROM THIS SUCCESS RATE, PREDICTING MOSTLY AWAY WINS!]
+```
+#Trying different thresholds!
+```{r}
+#creating thresholds for predicted Home winning/A/D
+
+pivot_nn_train_combined <- pivot_nn_train_combined %>% mutate(Predicted_outcome = ifelse(between(difference_in_CS_H,-0.2,0.2),"D",ifelse(difference_in_CS_H>0.2,"H",ifelse(difference_in_CS_H<-0.2,"A","NA"))))
+```
+
+```{r}
+#With the above threshold, get confusion matrix:
+attach(pivot_nn_train_combined)
+table(Actual_outcome_1,Predicted_outcome)
+
+#if thresholds are: ifelse(difference_in_CS_H >= -0.2 & difference_in_CS_H <= 0.2,"D",ifelse(difference_in_CS_H>0.2,"H",ifelse(difference_in_CS_H<-0.2,"A","NA")))), then accuracy = 31.7 % [I WONDER HOW MUCH PROFIT WOULD I MAKE FROM THIS SUCCESS RATE, PREDICTING MOSTLY AWAY WINS!]
+```
+
+#Trying different thresholds!
+```{r}
+#creating thresholds for predicted Home winning/A/D
+
+pivot_nn_train_combined <- pivot_nn_train_combined %>% mutate(Predicted_outcome = ifelse(between(difference_in_CS_H,-0.1,0.1),"D",ifelse(difference_in_CS_H>0.1,"H",ifelse(difference_in_CS_H<-0.1,"A","NA"))))
+```
+
+```{r}
+#With the above threshold, get confusion matrix:
+attach(pivot_nn_train_combined)
+table(Actual_outcome_1,Predicted_outcome)
+
+#if thresholds are: ifelse(between(difference_in_CS_H,-0.1,0.1),"D",ifelse(difference_in_CS_H>0.1,"H",ifelse(difference_in_CS_H<-0.1,"A","NA")))), then accuracy = 32.4 % [I WONDER HOW MUCH PROFIT WOULD I MAKE FROM THIS SUCCESS RATE, PREDICTING MOSTLY AWAY WINS!]
+```
+#Trying different thresholds!
+```{r}
+#creating thresholds for predicted Home winning/A/D
+
+pivot_nn_train_combined <- pivot_nn_train_combined %>% mutate(Predicted_outcome = ifelse(between(difference_in_CS_H,-0.02,0.02),"D",ifelse(difference_in_CS_H>0.02,"H",ifelse(difference_in_CS_H<-0.02,"A","NA"))))
+```
+
+```{r}
+#With the above threshold, get confusion matrix:
+attach(pivot_nn_train_combined)
+table(Actual_outcome_1,Predicted_outcome)
+
+#ifelse(between(difference_in_CS_H,-0.02,0.02),"D",ifelse(difference_in_CS_H>0.02,"H",ifelse(difference_in_CS_H<-0.02,"A","NA")))), then accuracy = 32.4 % [I WONDER HOW MUCH PROFIT WOULD I MAKE FROM THIS SUCCESS RATE, PREDICTING MOSTLY AWAY WINS!]
+```
+
+
+#Trying different thresholds!
+```{r}
+#creating thresholds for predicted Home winning/A/D
+
+pivot_nn_train_combined <- pivot_nn_train_combined %>% mutate(Predicted_outcome = ifelse(between(difference_in_CS_H,-0.5,-0.2),"D",ifelse(difference_in_CS_H>-0.2,"H",ifelse(difference_in_CS_H<-0.5,"A","NA"))))
+```
+
+```{r}
+#With the above threshold, get confusion matrix:
+attach(pivot_nn_train_combined)
+table(Actual_outcome_1,Predicted_outcome)
+
+#if thresholds are: ifelse(between(difference_in_CS_H,-0.5,-0.2),"D",ifelse(difference_in_CS_H>-0.2,"H",ifelse(difference_in_CS_H<-0.5,"A","NA")))), then accuracy = 45.3 % [I WONDER HOW MUCH PROFIT WOULD I MAKE FROM THIS SUCCESS RATE, PREDICTING MOSTLY AWAY WINS!]
+
+#You may be overfitting!
+```
+
+
+```{r}
+#Now test it for the test data!!! [cuz that is what matters!]
+```
+
