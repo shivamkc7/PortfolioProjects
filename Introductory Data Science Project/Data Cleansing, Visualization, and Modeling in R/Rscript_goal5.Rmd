@@ -1,0 +1,110 @@
+---
+title: "Goal 5"
+author: "Carter Rogers, Nicholas Hunter, Shivam K C"
+date: "10/25/2019"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+# Our Problem and Hypothesis:
+
+Some countries are happier than others. We want to find what factors best predict happiness. Therefore, we hypothesize the following:
+(i) We expect factors such as life expectancy and GDP to be positively correlated with happiness. In our dataset, Life Ladder is the happiness score of a nation gotten by averaging the national response to survey, Cantril Ladder, to a single number. (ii) We expect factors such as corruption to be negatively correlated with happiness. (iii) We expect Europe to be the happiest continent on average.
+
+
+```{r}
+#Loading Libraries
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+```
+
+```{r}
+# Import main dataset 
+WHR = read.csv("World_Happiness_Report_2008-2018.csv")
+
+# Filter most recent year
+WHR2018 = WHR %>% filter(Year == 2018)
+
+#Changing column names
+names(WHR2018)[names(WHR2018) == "ï..Country.name"] <- "Country.name"
+
+# Load continents
+# NA == North America so need to specify na.strings
+countries_and_continents = read.csv("countries and continents.csv", na.strings="N/A")
+
+
+# Merge main dataset with continent data
+whr2018_w_continents =  merge(x=WHR2018, y=countries_and_continents, by.x='Country.name', by.y='name')
+```
+
+# Distribution of Happiness Score
+
+```{r}
+ggplot(data=whr2018_w_continents, aes(x=Life.Ladder))+geom_histogram(
+                                            color="darkblue", fill="lightblue")+ggtitle("Histogram of Happiness Score")+xlab("Happiness Score") #histogram code
+```
+
+We plotted this graph to observe the distribution of happiness score. Here, the distribution of happiness score is symmetric. This means that there are many countries with average happiness scores.
+
+# Statistics of Happiness Score
+```{r}
+summary(whr2018_w_continents$Life.Ladder) #summary of happiness score
+```
+
+We are using this table to check the statistics (spread and mean) of Happiness Score which is our dependent variable. We observe that the mean Happiness Score of the World in 2018 was 5.469. The maximum score was 7.86 and the minimum score was 2.69.
+
+# Testing Hypothesis 1
+
+```{r}
+ggplot(whr2018_w_continents, aes(x=Life.Ladder, y=Healthy.life.expectancy.at.birth, shape=Continent, color=Continent))+geom_point()+ggtitle("Ladder vs. Healthy life expectancy, by Continent")+geom_smooth(method=lm, se=FALSE) #Relationship between happiness score and life expectancy among different continents.
+```
+
+We constructed this plot in order to examine the relationship between healthy life expectancy for each country and that respective country's happiness score. We see that European and Asian countries are strongly and positively correlated with happiness. African countries are not as strongly correlated, as the line of best fit has a lower slope than the others.
+
+```{r}
+ggplot(whr2018_w_continents, aes(x=Life.Ladder, y=Log.GDP.per.capita, shape=Continent, color=Continent))+geom_point()+ggtitle("Ladder vs. GDP, by Continent")+geom_smooth(method=lm, se=FALSE) #Relationship between happiness score and GDP among different continents.
+```
+
+Similar to the previous plot, we constructed this plot to examine the relationship between GDP and happiness score. We can see that for all continents, GDP is strongly and positively correlated with happiness. In particular, European countries typically have both higher GDP's and happiness scores.
+
+# Testing Hypothesis 3
+```{r}
+happiness_by_continent <- whr2018_w_continents %>% group_by(Continent) %>% summarise(count = n(), ladder_avg = mean(Life.Ladder)) #piping to get average happiness scores for each continent.
+happiness_by_continent
+```
+
+We made this table to test our hypothesis 3. We observe Oceanic to have the highest Happiness score, but this score only considers 2 countries. We do observe (excluding OC) Europe to be the happiest continent.
+
+# Testing Hypothesis 2
+
+```{r}
+# Select columns of interest
+whr_2018_select = whr2018_w_continents %>% select(Life.Ladder, Healthy.life.expectancy.at.birth, Freedom.to.make.life.choices, Generosity, Perceptions.of.corruption, Generosity, Social.support, Log.GDP.per.capita, Confidence.in.national.government)
+
+# Create correlation matrix
+cormat <- round(cor(whr_2018_select, use = "complete.obs"),2)
+
+# Melt the matrix
+melted_cormat = melt(cormat)
+
+# Plot the correlation data
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + xlab("Variable 1") + ylab("Variable 2") + ggtitle("Correlation Matrix") + geom_tile()+theme(axis.text.x=element_text(angle=90, hjust=1)) + scale_fill_gradient(low = "blue", high = "orange")
+```
+This plot shows the correlations between a selected set of variables which we believe could relate to our hypothesis. Here we see stronger correlations between Life.Ladder, which is our self reported happiness score, and GDP per capita, Social Support, Freedom, and Life expectancy. We see weaker correlations with Confidence in Government and Generosity. We also see a negative correlation between happiness and Perceptions of Corruption.
+
+
+
+# Comparing Top 3 Happiest Countries from Each Continent
+
+```{r}
+Top_3 <- whr2018_w_continents %>% select(Continent, Country.name,Life.Ladder) %>% group_by(Continent)%>% arrange(desc(Life.Ladder), .by_group = TRUE)%>% slice(1:3) #getting the table
+
+#Now plotting bar plots and comparing
+
+ggplot(Top_3,aes(x=Country.name, y=Life.Ladder, fill = Continent))+geom_bar(stat='identity')+coord_flip()+facet_wrap(~Continent,ncol=1,scales = 'free_y')
+```
+
+We plotted this graph to compare top 3 happiest countries from each continent. We observe that top 3 happiest countries from Europe are happier than or at the (very least) same level as top 3 happiest countries from other continents. 
+
