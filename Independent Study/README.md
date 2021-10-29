@@ -1,6 +1,6 @@
 Summary:
 
-Conducted yearlong research building 15+ ANN and ordered probit models to accurately predict soccer games in the English Premier League [link] 
+Conducted yearlong research building 15+ ANN and ordered probit models to accurately predict soccer games in the English Premier League
 
 Discovered the second-best predictive accuracy of 53.5% among related work 
 
